@@ -127,6 +127,20 @@ class Mapping_Store {
 		return array_map( 'intval', (array) $rows );
 	}
 
+	/** Rows whose post_content was touched and can therefore be rolled back. */
+	public function ids_rollbackable( int $limit = 5000 ): array {
+		global $wpdb;
+		$rows = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT id FROM {$this->table()}
+				 WHERE status IN ('imported','replaced')
+				 ORDER BY id ASC LIMIT %d",
+				max( 1, $limit )
+			)
+		);
+		return array_map( 'intval', (array) $rows );
+	}
+
 	public function mark_imported( int $id, int $attachment_id ): void {
 		global $wpdb;
 		$wpdb->update(

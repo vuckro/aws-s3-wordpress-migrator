@@ -33,31 +33,26 @@ class Replacer {
 		$errors  = [];
 
 		foreach ( $post_ids as $pid ) {
-			$lock = $this->acquire_post_lock( $pid );
-			try {
-				$post = get_post( $pid );
-				if ( ! $post ) {
-					$skipped++;
-					continue;
-				}
-				$original = (string) $post->post_content;
-				$new      = $this->rewrite_content( $original, $map, $attachment_id );
-				if ( $new === $original ) {
-					$skipped++;
-					continue;
-				}
-				update_post_meta( $pid, self::BACKUP_META_PREFIX . $row->id(), $original );
-				$this->record_replacement( $pid, $row->id(), $attachment_id, array_keys( $map ) );
-
-				$res = wp_update_post( [ 'ID' => $pid, 'post_content' => $new ], true );
-				if ( is_wp_error( $res ) ) {
-					$errors[] = sprintf( '#%d: %s', $pid, $res->get_error_message() );
-					continue;
-				}
-				$updated++;
-			} finally {
-				$this->release_post_lock( $lock );
+			$post = get_post( $pid );
+			if ( ! $post ) {
+				$skipped++;
+				continue;
 			}
+			$original = (string) $post->post_content;
+			$new      = $this->rewrite_content( $original, $map, $attachment_id );
+			if ( $new === $original ) {
+				$skipped++;
+				continue;
+			}
+			update_post_meta( $pid, self::BACKUP_META_PREFIX . $row->id(), $original );
+			$this->record_replacement( $pid, $row->id(), $attachment_id, array_keys( $map ) );
+
+			$res = wp_update_post( [ 'ID' => $pid, 'post_content' => $new ], true );
+			if ( is_wp_error( $res ) ) {
+				$errors[] = sprintf( '#%d: %s', $pid, $res->get_error_message() );
+				continue;
+			}
+			$updated++;
 		}
 
 		return [ 'posts_updated' => $updated, 'posts_skipped' => $skipped, 'errors' => $errors ];
@@ -158,23 +153,6 @@ class Replacer {
 			'variants'      => $variants,
 		];
 		update_post_meta( $post_id, self::REPLACEMENTS_META, $log );
-	}
-
-	/**
-	 * Acquire a MySQL advisory lock for the given post. Waits up to 10 s.
-	 * Ensures two concurrent Replacer runs touching the same post
-	 * serialise cleanly instead of racing on post_content.
-	 */
-	private function acquire_post_lock( int $post_id ): string {
-		global $wpdb;
-		$name = 'wks3m_post_' . $post_id;
-		$wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 10)', $name ) );
-		return $name;
-	}
-
-	private function release_post_lock( string $name ): void {
-		global $wpdb;
-		$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $name ) );
 	}
 
 	private function forget_replacement( int $post_id, int $row_id ): void {

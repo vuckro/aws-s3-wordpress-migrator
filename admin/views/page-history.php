@@ -23,6 +23,7 @@ if ( ! in_array( $status, $allowed, true ) ) {
 $data   = $store->list( [ 'status' => $status, 'page' => $paged, 'per_page' => 25 ] );
 $counts = $store->counts_by_status();
 $rows   = View_Helper::wrap_rows( $data['items'] );
+$rollbackable = (int) $counts['imported'] + (int) $counts['replaced'];
 
 $tabs = [
 	'imported'    => __( 'Importées', 'waaskit-s3-migrator' ),
@@ -46,7 +47,26 @@ $tabs = [
 		<?php endforeach; ?>
 	</ul>
 
-	<p class="description"><?php esc_html_e( 'Rollback restaure le contenu des articles à son état d\'avant migration. La case à cocher permet aussi de supprimer l\'image de la Media Library.', 'waaskit-s3-migrator' ); ?></p>
+	<p class="description"><?php esc_html_e( 'Le rollback restaure le contenu des articles à leur état d\'avant migration. Les médias importés restent dans la Media Library (supprime-les manuellement si besoin).', 'waaskit-s3-migrator' ); ?></p>
+
+	<div class="wks3m-bulk-bar">
+		<button type="button" class="button button-primary" id="wks3m-rollback-all" <?php disabled( 0 === $rollbackable ); ?>>
+			<?php
+			printf(
+				/* translators: %d: number of rollbackable rows */
+				esc_html__( 'Tout rollback (%d)', 'waaskit-s3-migrator' ),
+				$rollbackable
+			);
+			?>
+		</button>
+		<button type="button" class="button" id="wks3m-bulk-stop" hidden><?php esc_html_e( 'Stop', 'waaskit-s3-migrator' ); ?></button>
+		<span class="spinner" id="wks3m-bulk-spinner" style="float:none;"></span>
+	</div>
+
+	<div id="wks3m-bulk-progress" class="wks3m-progress" hidden>
+		<div class="wks3m-progress-bar"><span></span></div>
+		<p class="wks3m-progress-label"></p>
+	</div>
 
 	<?php if ( empty( $rows ) ) : ?>
 		<p><?php esc_html_e( 'Rien à afficher.', 'waaskit-s3-migrator' ); ?></p>
@@ -59,7 +79,7 @@ $tabs = [
 					<th><?php esc_html_e( 'Hôte source', 'waaskit-s3-migrator' ); ?></th>
 					<th><?php esc_html_e( 'Posts', 'waaskit-s3-migrator' ); ?></th>
 					<th><?php esc_html_e( 'Statut', 'waaskit-s3-migrator' ); ?></th>
-					<th style="width:220px"><?php esc_html_e( 'Action', 'waaskit-s3-migrator' ); ?></th>
+					<th style="width:120px"><?php esc_html_e( 'Action', 'waaskit-s3-migrator' ); ?></th>
 				</tr>
 			</thead>
 			<tbody>
@@ -82,10 +102,6 @@ $tabs = [
 						</td>
 						<td>
 							<?php if ( $can_rollback ) : ?>
-								<label style="display:block;margin-bottom:4px;">
-									<input type="checkbox" class="wks3m-rollback-delete" />
-									<?php esc_html_e( 'Supprimer le média', 'waaskit-s3-migrator' ); ?>
-								</label>
 								<button type="button" class="button wks3m-rollback-btn" data-id="<?php echo (int) $row->id(); ?>">
 									<?php esc_html_e( 'Rollback', 'waaskit-s3-migrator' ); ?>
 								</button>

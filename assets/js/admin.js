@@ -153,9 +153,8 @@
 		if (!window.confirm(WKS3M.i18n.confirm_rollback)) return;
 		var $btn = $(e.currentTarget);
 		var id = parseInt($btn.data('id'), 10);
-		var deleteMedia = $btn.closest('td').find('.wks3m-rollback-delete').is(':checked');
 		$btn.prop('disabled', true);
-		post('wks3m_rollback_row', { id: id, delete_attachment: deleteMedia ? 1 : 0 })
+		post('wks3m_rollback_row', { id: id })
 			.done(function (resp) {
 				if (!resp || !resp.success) { $btn.prop('disabled', false); alert(errOf(resp)); return; }
 				var $row = $('tr[data-id="' + id + '"]');
@@ -165,81 +164,48 @@
 			.fail(function () { $btn.prop('disabled', false); alert(WKS3M.i18n.error); });
 	}
 
-	/* ---------- Queue: bulk driver (batched + concurrent) ---------- */
+	/* ---------- Queue / History bulk driver (sequential + stoppable) ---------- */
 
-	var BULK_BATCH_SIZE  = 5;  // ids per HTTP request
-	var BULK_CONCURRENCY = 3;  // parallel HTTP requests in flight
+	// One tiny state machine handles both "migrate" and "rollback" bulk runs.
+	// Sequential: one AJAX call at a time. The Stop button sets running=false
+	// so the next iteration bails out cleanly without killing the in-flight
+	// request.
+	var bulk = null;
 
-	var bulk = { batches: [], cursor: 0, done: 0, total: 0, ok: 0, ko: 0, active: 0, running: false };
-
-	function chunk(arr, size) {
-		var out = [];
-		for (var i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-		return out;
+	function resetBulk(kind, ids) {
+		return {
+			kind: kind,               // 'import' or 'rollback'
+			ids: ids,
+			index: 0,
+			total: ids.length,
+			ok: 0, ko: 0,
+			running: true
+		};
 	}
 
-	function renderBulkProgress() {
-		var pct = bulk.total > 0 ? Math.round((bulk.done / bulk.total) * 100) : 0;
+	function renderBulkProgress(label) {
+		if (!bulk) return;
+		var pct = bulk.total > 0 ? Math.round((bulk.index / bulk.total) * 100) : 0;
 		var $p = $('#wks3m-bulk-progress').prop('hidden', false);
 		$p.find('.wks3m-progress-bar span').css('width', pct + '%');
 		$p.find('.wks3m-progress-label').text(
-			pct + '% — ' + bulk.done + ' / ' + bulk.total +
+			(label || '') + pct + '% — ' + bulk.index + ' / ' + bulk.total +
 			' (✔ ' + bulk.ok + ' · ✖ ' + bulk.ko + ')'
 		);
 	}
 
-	function applyBatchResults(results) {
-		results.forEach(function (r) {
-			bulk.done++;
-			if (r.ok) {
-				bulk.ok++;
-				var $row = $('tr[data-id="' + r.id + '"]');
-				if ($row.length) setStatusCell($row, r.status);
-			} else {
-				bulk.ko++;
-			}
-		});
-	}
-
-	function drainBulk() {
-		if (!bulk.running) return;
-		while (bulk.active < BULK_CONCURRENCY && bulk.cursor < bulk.batches.length) {
-			var batch = bulk.batches[bulk.cursor++];
-			bulk.active++;
-			post('wks3m_import_batch', $.extend({ ids: batch }, importOptions()))
-				.done(function (resp) {
-					if (resp && resp.success && Array.isArray(resp.data.results)) {
-						applyBatchResults(resp.data.results);
-					} else {
-						// Whole-batch failure: count every id as KO.
-						bulk.ko += batch.length;
-						bulk.done += batch.length;
-					}
-				})
-				.fail(function () {
-					bulk.ko += batch.length;
-					bulk.done += batch.length;
-				})
-				.always(function () {
-					bulk.active--;
-					renderBulkProgress();
-					if (bulk.cursor < bulk.batches.length) {
-						drainBulk();
-					} else if (bulk.active === 0) {
-						finishBulk();
-					}
-				});
-		}
-	}
-
-	function finishBulk() {
-		bulk.running = false;
+	function finishBulk(stopped) {
+		var summary = bulk;
 		$('#wks3m-bulk-spinner').removeClass('is-active');
-		$('#wks3m-bulk-all, #wks3m-bulk-selected').prop('disabled', false);
-		renderBulkProgress();
-		if (bulk.total > 0) {
+		$('#wks3m-bulk-stop').prop('hidden', true);
+		$('#wks3m-bulk-all, #wks3m-bulk-selected, #wks3m-rollback-all').prop('disabled', false);
+		bulk = null;
+		if (!summary) return;
+		renderBulk_internal_summary(summary, stopped);
+		if (summary.total > 0) {
 			setTimeout(function () {
-				if (window.confirm('Migration terminée (✔ ' + bulk.ok + ' · ✖ ' + bulk.ko +
+				var prefix = stopped ? 'Arrêté' : 'Terminé';
+				if (window.confirm(prefix + ' (✔ ' + summary.ok + ' · ✖ ' + summary.ko +
 					'). Recharger la page ?')) {
 					location.reload();
 				}
@@ -247,34 +213,96 @@
 		}
 	}
 
-	function startBulk(ids) {
-		if (!ids || !ids.length) { alert('Aucune ligne à migrer.'); return; }
-		if (!$('#wks3m-dry-run').is(':checked') && !window.confirm(WKS3M.i18n.confirm_bulk)) return;
-		bulk = {
-			batches: chunk(ids, BULK_BATCH_SIZE),
-			cursor: 0, done: 0, total: ids.length,
-			ok: 0, ko: 0, active: 0, running: true
-		};
-		$('#wks3m-bulk-all, #wks3m-bulk-selected').prop('disabled', true);
+	function renderBulk_internal_summary(s, stopped) {
+		var pct = s.total > 0 ? Math.round((s.index / s.total) * 100) : 0;
+		$('#wks3m-bulk-progress').prop('hidden', false)
+			.find('.wks3m-progress-label').text(
+				(stopped ? 'Arrêté — ' : 'Terminé — ') +
+				pct + '% — ' + s.index + ' / ' + s.total +
+				' (✔ ' + s.ok + ' · ✖ ' + s.ko + ')'
+			);
+	}
+
+	function runBulkNext() {
+		if (!bulk) return;
+		if (!bulk.running) return finishBulk(true);
+		if (bulk.index >= bulk.ids.length) return finishBulk(false);
+
+		var id = bulk.ids[bulk.index];
+		var action = bulk.kind === 'rollback' ? 'wks3m_rollback_row' : 'wks3m_import_row';
+		var payload = bulk.kind === 'rollback' ? { id: id } : $.extend({ id: id }, importOptions());
+
+		post(action, payload).always(function (resp) {
+			if (resp && resp.success) {
+				bulk.ok++;
+				var $row = $('tr[data-id="' + id + '"]');
+				if ($row.length) {
+					var next;
+					if (bulk.kind === 'rollback') {
+						next = 'rolled_back';
+					} else if (resp.data && resp.data.dry_run) {
+						next = 'pending';
+					} else if (resp.data && resp.data.status) {
+						next = resp.data.status;
+					} else {
+						next = 'imported';
+					}
+					setStatusCell($row, next);
+				}
+			} else {
+				bulk.ko++;
+			}
+			bulk.index++;
+			renderBulkProgress();
+			setTimeout(runBulkNext, 50);
+		});
+	}
+
+	function startBulk(kind, ids, confirmKey) {
+		if (!ids || !ids.length) { alert('Rien à traiter.'); return; }
+		if (confirmKey && !window.confirm(WKS3M.i18n[confirmKey])) return;
+
+		bulk = resetBulk(kind, ids);
+		$('#wks3m-bulk-all, #wks3m-bulk-selected, #wks3m-rollback-all').prop('disabled', true);
+		$('#wks3m-bulk-stop').prop('hidden', false);
 		$('#wks3m-bulk-spinner').addClass('is-active');
-		$('#wks3m-bulk-progress .wks3m-progress-label').text(WKS3M.i18n.bulk_progress);
+		$('#wks3m-bulk-progress .wks3m-progress-label').text(
+			kind === 'rollback' ? 'Rollback en cours…' : WKS3M.i18n.bulk_progress
+		);
 		$('#wks3m-bulk-progress').prop('hidden', false);
 		renderBulkProgress();
-		drainBulk();
+		runBulkNext();
+	}
+
+	function handleStop() {
+		if (!bulk) return;
+		bulk.running = false;
+		$('#wks3m-bulk-stop').prop('disabled', true).text('Arrêt en cours…');
 	}
 
 	function handleBulkAll() {
-		post('wks3m_pending_ids', { limit: 5000 })
+		var confirmIfReal = $('#wks3m-dry-run').is(':checked') ? null : 'confirm_bulk';
+		post('wks3m_pending_ids')
 			.done(function (resp) {
 				if (!resp || !resp.success) return alert(WKS3M.i18n.error);
-				startBulk(resp.data.ids || []);
+				startBulk('import', resp.data.ids || [], confirmIfReal);
 			})
 			.fail(function () { alert(WKS3M.i18n.error); });
 	}
 
 	function handleBulkSelected() {
+		var confirmIfReal = $('#wks3m-dry-run').is(':checked') ? null : 'confirm_bulk';
 		var ids = $('.wks3m-row-check:checked').map(function () { return parseInt(this.value, 10); }).get();
-		startBulk(ids);
+		startBulk('import', ids, confirmIfReal);
+	}
+
+	function handleRollbackAll() {
+		post('wks3m_rollbackable_ids')
+			.done(function (resp) {
+				if (!resp || !resp.success) return alert(WKS3M.i18n.error);
+				startBulk('rollback', resp.data.ids || [], 'confirm_rollback_all');
+			})
+			.fail(function () { alert(WKS3M.i18n.error); });
 	}
 
 	/* ---------- Settings: Transform rule ---------- */
@@ -390,6 +418,8 @@
 		$(document).on('click', '.wks3m-rollback-btn', handleRollback);
 		$('#wks3m-bulk-all').on('click', handleBulkAll);
 		$('#wks3m-bulk-selected').on('click', handleBulkSelected);
+		$('#wks3m-rollback-all').on('click', handleRollbackAll);
+		$('#wks3m-bulk-stop').on('click', handleStop);
 		$('#wks3m-select-all').on('change', function () {
 			$('.wks3m-row-check').prop('checked', $(this).is(':checked'));
 		});

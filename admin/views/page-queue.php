@@ -89,6 +89,7 @@ $rows = View_Helper::wrap_rows( $data['items'] );
 			?>
 		</button>
 		<button type="button" class="button" id="wks3m-bulk-selected"><?php esc_html_e( 'Migrer la sélection', 'waaskit-s3-migrator' ); ?></button>
+		<button type="button" class="button" id="wks3m-bulk-stop" hidden><?php esc_html_e( 'Stop', 'waaskit-s3-migrator' ); ?></button>
 		<span class="spinner" id="wks3m-bulk-spinner" style="float:none;"></span>
 	</div>
 
