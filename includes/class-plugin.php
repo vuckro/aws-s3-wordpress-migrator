@@ -33,7 +33,27 @@ class Plugin {
 		if ( is_admin() ) {
 			( new \CXS3M\Admin\Admin() )->register();
 			( new \CXS3M\Admin\Ajax_Controller() )->register();
+			add_filter( 'plugin_row_meta', [ $this, 'open_plugin_site_in_new_tab' ], 10, 2 );
 		}
+	}
+
+	/**
+	 * Force the "Visit plugin site" link on the Plugins list to open in a new tab.
+	 */
+	public function open_plugin_site_in_new_tab( array $links, string $plugin_file ): array {
+		if ( plugin_basename( CXS3M_PLUGIN_FILE ) !== $plugin_file ) {
+			return $links;
+		}
+		foreach ( $links as $i => $link ) {
+			if ( false !== strpos( $link, 'plugin-install.php' ) ) {
+				continue;
+			}
+			// Match any <a> that doesn't already have a target attribute.
+			if ( false !== strpos( $link, '<a ' ) && false === strpos( $link, 'target=' ) ) {
+				$links[ $i ] = str_replace( '<a ', '<a target="_blank" rel="noopener noreferrer" ', $link );
+			}
+		}
+		return $links;
 	}
 
 	public function scanner(): Scanner {
