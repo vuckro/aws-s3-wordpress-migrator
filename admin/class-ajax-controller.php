@@ -26,7 +26,6 @@ class Ajax_Controller {
 			'wks3m_import_row'        => 'import_row',
 			'wks3m_replace_row'       => 'replace_row',
 			'wks3m_rollback_row'      => 'rollback_row',
-			'wks3m_rollbackable_ids'  => 'rollbackable_ids',
 			'wks3m_transform_preview' => 'transform_preview',
 			'wks3m_transform_apply'   => 'transform_apply',
 		];
@@ -62,15 +61,7 @@ class Ajax_Controller {
 		] );
 	}
 
-	public function rollbackable_ids(): void {
-		$this->guard();
-		$limit = isset( $_POST['limit'] ) ? max( 1, min( 5000, (int) $_POST['limit'] ) ) : 5000;
-		wp_send_json_success( [
-			'ids' => Plugin::instance()->mapping_store()->ids_rollbackable( $limit ),
-		] );
-	}
-
-	public function import_row(): void {
+public function import_row(): void {
 		$this->guard();
 
 		$id           = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;

@@ -23,7 +23,6 @@ if ( ! in_array( $status, $allowed, true ) ) {
 $data   = $store->list( [ 'status' => $status, 'page' => $paged, 'per_page' => 25 ] );
 $counts = $store->counts_by_status();
 $rows   = View_Helper::wrap_rows( $data['items'] );
-$rollbackable = (int) $counts['imported'] + (int) $counts['replaced'];
 
 $tabs = [
 	'imported'    => __( 'Importées', 'waaskit-s3-migrator' ),
@@ -47,26 +46,7 @@ $tabs = [
 		<?php endforeach; ?>
 	</ul>
 
-	<p class="description"><?php esc_html_e( 'Le rollback restaure le contenu des articles à leur état d\'avant migration. Les médias importés restent dans la Media Library (supprime-les manuellement si besoin).', 'waaskit-s3-migrator' ); ?></p>
-
-	<div class="wks3m-bulk-bar">
-		<button type="button" class="button button-primary" id="wks3m-rollback-all" <?php disabled( 0 === $rollbackable ); ?>>
-			<?php
-			printf(
-				/* translators: %d: number of rollbackable rows */
-				esc_html__( 'Tout rollback (%d)', 'waaskit-s3-migrator' ),
-				$rollbackable
-			);
-			?>
-		</button>
-		<button type="button" class="button" id="wks3m-bulk-stop" hidden><?php esc_html_e( 'Stop', 'waaskit-s3-migrator' ); ?></button>
-		<span class="spinner" id="wks3m-bulk-spinner" style="float:none;"></span>
-	</div>
-
-	<div id="wks3m-bulk-progress" class="wks3m-progress" hidden>
-		<div class="wks3m-progress-bar"><span></span></div>
-		<p class="wks3m-progress-label"></p>
-	</div>
+	<p class="description"><?php esc_html_e( 'Le rollback restaure le contenu de l\'article à son état d\'avant migration. Les médias importés restent dans la Media Library (supprime-les manuellement si besoin).', 'waaskit-s3-migrator' ); ?></p>
 
 	<?php if ( empty( $rows ) ) : ?>
 		<p><?php esc_html_e( 'Rien à afficher.', 'waaskit-s3-migrator' ); ?></p>

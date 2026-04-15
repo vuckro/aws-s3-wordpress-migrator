@@ -164,40 +164,30 @@
 			.fail(function () { $btn.prop('disabled', false); alert(T.error); });
 	}
 
-	/* ---------- Bulk driver (sequential, stoppable, shared between migrate & rollback) ---------- */
+	/* ---------- Bulk import (sequential, stoppable) ---------- */
 
 	var bulk = null;
 
-	function bulkSummary(prefix) {
-		var pct = bulk.total > 0 ? Math.round((bulk.index / bulk.total) * 100) : 0;
-		return (prefix ? prefix + ' — ' : '') + pct + '% — ' +
-			bulk.index + ' / ' + bulk.total + ' (✔ ' + bulk.ok + ' · ✖ ' + bulk.ko + ')';
-	}
-
 	function drawBulk(prefix) {
 		var pct = bulk.total > 0 ? Math.round((bulk.index / bulk.total) * 100) : 0;
-		renderProgress($('#wks3m-bulk-progress'), pct, bulkSummary(prefix));
+		var label = (prefix ? prefix + ' — ' : '') + pct + '% — ' +
+			bulk.index + ' / ' + bulk.total + ' (✔ ' + bulk.ok + ' · ✖ ' + bulk.ko + ')';
+		renderProgress($('#wks3m-bulk-progress'), pct, label);
 	}
 
 	function bulkNext() {
 		if (!bulk) return;
-		if (!bulk.running)               return endBulk(true);
-		if (bulk.index >= bulk.total)    return endBulk(false);
+		if (!bulk.running)            return endBulk(true);
+		if (bulk.index >= bulk.total) return endBulk(false);
 
 		var id = bulk.ids[bulk.index];
-		var isRollback = bulk.kind === 'rollback';
-		var action  = isRollback ? 'wks3m_rollback_row' : 'wks3m_import_row';
-		var payload = isRollback ? { id: id } : $.extend({ id: id }, importOptions());
-
-		post(action, payload).always(function (resp) {
+		post('wks3m_import_row', $.extend({ id: id }, importOptions())).always(function (resp) {
 			var $row = $('tr[data-id="' + id + '"]');
 			if (resp && resp.success) {
 				bulk.ok++;
 				if ($row.length) {
-					setStatus($row, isRollback
-						? 'rolled_back'
-						: ((resp.data && resp.data.dry_run) ? 'pending'
-							: (resp.data && resp.data.status) || 'imported'));
+					setStatus($row, (resp.data && resp.data.dry_run) ? 'pending'
+						: (resp.data && resp.data.status) || 'imported');
 				}
 			} else {
 				bulk.ko++;
@@ -212,10 +202,8 @@
 		var summary = bulk;
 		$('#wks3m-bulk-spinner').removeClass('is-active');
 		$('#wks3m-bulk-stop').prop('hidden', true).prop('disabled', false).text(T.stop);
-		$('#wks3m-bulk-all, #wks3m-bulk-selected, #wks3m-rollback-all').prop('disabled', false);
-		bulk = null;
+		$('#wks3m-bulk-all, #wks3m-bulk-selected').prop('disabled', false);
 		if (!summary) return;
-		bulk = summary;                    // keep for drawBulk label
 		drawBulk(stopped ? T.stopped : T.done);
 		bulk = null;
 		if (summary.total === 0) return;
@@ -225,15 +213,15 @@
 		}, 200);
 	}
 
-	function startBulk(kind, ids, confirmKey) {
+	function startBulk(ids) {
 		if (!ids || !ids.length) { alert(T.nothing_to_do); return; }
-		if (confirmKey && !window.confirm(T[confirmKey])) return;
+		if (!$('#wks3m-dry-run').is(':checked') && !window.confirm(T.confirm_bulk)) return;
 
-		bulk = { kind: kind, ids: ids, index: 0, total: ids.length, ok: 0, ko: 0, running: true };
-		$('#wks3m-bulk-all, #wks3m-bulk-selected, #wks3m-rollback-all').prop('disabled', true);
+		bulk = { ids: ids, index: 0, total: ids.length, ok: 0, ko: 0, running: true };
+		$('#wks3m-bulk-all, #wks3m-bulk-selected').prop('disabled', true);
 		$('#wks3m-bulk-stop').prop('hidden', false);
 		$('#wks3m-bulk-spinner').addClass('is-active');
-		drawBulk(kind === 'rollback' ? T.rollback_progress : T.bulk_progress);
+		drawBulk(T.bulk_progress);
 		bulkNext();
 	}
 
@@ -244,28 +232,17 @@
 	}
 
 	function handleBulkAll() {
-		var needsConfirm = $('#wks3m-dry-run').is(':checked') ? null : 'confirm_bulk';
 		post('wks3m_pending_ids')
 			.done(function (resp) {
 				if (!resp || !resp.success) return alert(T.error);
-				startBulk('import', resp.data.ids || [], needsConfirm);
+				startBulk(resp.data.ids || []);
 			})
 			.fail(function () { alert(T.error); });
 	}
 
 	function handleBulkSelected() {
-		var needsConfirm = $('#wks3m-dry-run').is(':checked') ? null : 'confirm_bulk';
 		var ids = $('.wks3m-row-check:checked').map(function () { return parseInt(this.value, 10); }).get();
-		startBulk('import', ids, needsConfirm);
-	}
-
-	function handleRollbackAll() {
-		post('wks3m_rollbackable_ids')
-			.done(function (resp) {
-				if (!resp || !resp.success) return alert(T.error);
-				startBulk('rollback', resp.data.ids || [], 'confirm_rollback_all');
-			})
-			.fail(function () { alert(T.error); });
+		startBulk(ids);
 	}
 
 	/* ---------- Settings: Transform rule ---------- */
@@ -359,10 +336,9 @@
 		$(document).on('click', '.wks3m-rollback-btn', handleRollback);
 
 		// Bulk.
-		$('#wks3m-bulk-all').on('click',       handleBulkAll);
-		$('#wks3m-bulk-selected').on('click',  handleBulkSelected);
-		$('#wks3m-rollback-all').on('click',   handleRollbackAll);
-		$('#wks3m-bulk-stop').on('click',      handleStop);
+		$('#wks3m-bulk-all').on('click',      handleBulkAll);
+		$('#wks3m-bulk-selected').on('click', handleBulkSelected);
+		$('#wks3m-bulk-stop').on('click',     handleStop);
 		$('#wks3m-select-all').on('change', function () {
 			$('.wks3m-row-check').prop('checked', $(this).is(':checked'));
 		});

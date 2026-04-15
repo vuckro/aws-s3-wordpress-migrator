@@ -58,7 +58,6 @@ class Admin {
 		return [
 			'scanning'          => __( 'Scan en cours…', 'waaskit-s3-migrator' ),
 			'bulk_progress'     => __( 'Migration en cours…', 'waaskit-s3-migrator' ),
-			'rollback_progress' => __( 'Rollback en cours…', 'waaskit-s3-migrator' ),
 			'error'             => __( 'Erreur.', 'waaskit-s3-migrator' ),
 			'importing'         => __( 'Import en cours…', 'waaskit-s3-migrator' ),
 			'btn_migrate'       => __( 'Migrer', 'waaskit-s3-migrator' ),
@@ -79,7 +78,6 @@ class Admin {
 			'confirm_real'      => __( 'Mode réel : l\'image sera téléchargée dans la Media Library. Continuer ?', 'waaskit-s3-migrator' ),
 			'confirm_bulk'      => __( 'Migrer toutes les images en attente en mode réel ? Cette opération peut prendre du temps.', 'waaskit-s3-migrator' ),
 			'confirm_rollback'  => __( 'Le contenu de l\'article va être restauré à son état d\'avant la migration. Continuer ?', 'waaskit-s3-migrator' ),
-			'confirm_rollback_all' => __( 'Rollback de toutes les migrations ? Les articles concernés seront restaurés.', 'waaskit-s3-migrator' ),
 			// Transform tool.
 			'tr_invalid'        => __( 'Règle incomplète. Vérifie le champ, la condition et l\'action.', 'waaskit-s3-migrator' ),
 			'tr_confirm'        => __( 'Appliquer la règle ? La modification est définitive (pas de rollback pour les transformations).', 'waaskit-s3-migrator' ),
