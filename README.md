@@ -1,6 +1,6 @@
-# Claireexplore S3 Migrator
+# AWS S3 WordPress Migrator by WaaKit
 
-Plugin WordPress qui **scanne**, **télécharge** et **importe** dans la Media Library locale les images hébergées sur `clairexplore.s3.eu-west-3.amazonaws.com`, puis **remplace** les URLs dans les articles avec un **log réversible**.
+Plugin WordPress qui **scanne**, **télécharge** et **importe** dans la Media Library locale les images hébergées sur AWS S3 (ex. `clairexplore.s3.eu-west-3.amazonaws.com`), puis **remplace** les URLs dans les articles avec un **log réversible**.
 
 ## Statut
 
@@ -15,7 +15,7 @@ Plugin WordPress qui **scanne**, **télécharge** et **importe** dans la Media L
 
 1. Cloner ce repo dans `wp-content/plugins/claireexplore-s3-migrator/`
 2. Activer le plugin depuis `wp-admin → Extensions`
-3. Aller dans `Outils → S3 Migrator`
+3. Aller dans `Outils → AWS S3 Migrator`
 
 ## Usage (Phase 1)
 
@@ -36,6 +36,10 @@ Onglet **Scan** :
 Voir [`claireexplore-s3-migrator.php`](./claireexplore-s3-migrator.php) pour le bootstrap. Chaque composant a sa classe sous `includes/`.
 
 Table custom : `{prefix}s3_migration_log` (créée à l'activation).
+
+## Auteur
+
+WaaKit
 
 ## Licence
 

@@ -1,12 +1,12 @@
 <?php
 /**
- * Plugin Name:       Claireexplore S3 Migrator
+ * Plugin Name:       AWS S3 WordPress Migrator by WaaKit
  * Plugin URI:        https://github.com/
- * Description:       Scanne, télécharge et importe dans la Media Library les images hébergées sur clairexplore.s3.eu-west-3.amazonaws.com, avec validation manuelle et rollback réversible.
+ * Description:       Scanne, télécharge et importe dans la Media Library les images hébergées sur AWS S3, avec validation manuelle et rollback réversible.
  * Version:           0.1.0-phase1
  * Requires at least: 6.0
  * Requires PHP:      8.1
- * Author:            Claire Explore
+ * Author:            WaaKit
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       claireexplore-s3-migrator

@@ -20,8 +20,8 @@ class Admin {
 
 	public function add_menu(): void {
 		add_management_page(
-			__( 'Claireexplore S3 Migrator', 'claireexplore-s3-migrator' ),
-			__( 'S3 Migrator', 'claireexplore-s3-migrator' ),
+			__( 'AWS S3 WordPress Migrator by WaaKit', 'claireexplore-s3-migrator' ),
+			__( 'AWS S3 Migrator', 'claireexplore-s3-migrator' ),
 			'manage_options',
 			self::MENU_SLUG,
 			[ $this, 'render_page' ]
@@ -72,7 +72,7 @@ class Admin {
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( (string) $_GET['tab'] ) : 'scan';
 		?>
 		<div class="wrap cxs3m-wrap">
-			<h1><?php esc_html_e( 'Claireexplore S3 Migrator', 'claireexplore-s3-migrator' ); ?></h1>
+			<h1><?php esc_html_e( 'AWS S3 WordPress Migrator by WaaKit', 'claireexplore-s3-migrator' ); ?></h1>
 			<nav class="nav-tab-wrapper">
 				<a href="<?php echo esc_url( admin_url( 'tools.php?page=' . self::MENU_SLUG . '&tab=scan' ) ); ?>"
 					class="nav-tab <?php echo 'scan' === $tab ? 'nav-tab-active' : ''; ?>">
