@@ -1,6 +1,7 @@
 <?php
 /**
- * Queue tab view — paginated list of detected images with per-row import button.
+ * Queue tab view — paginated list of detected images with per-row import button
+ * and a bulk "Migrate all pending" action.
  *
  * @package WaasKitS3Migrator
  */
@@ -25,8 +26,10 @@ $hosts  = $store->distinct_hosts();
 
 $base_url = admin_url( 'tools.php?page=wks3m&tab=queue' );
 
-function wks3m_queue_status_url( string $base_url, string $status ): string {
-	return esc_url( add_query_arg( [ 'status' => $status ?: null, 'paged' => null ], $base_url ) );
+if ( ! function_exists( 'wks3m_queue_status_url' ) ) {
+	function wks3m_queue_status_url( string $base_url, string $status ): string {
+		return esc_url( add_query_arg( [ 'status' => $status ?: null, 'paged' => null ], $base_url ) );
+	}
 }
 ?>
 
@@ -37,6 +40,7 @@ function wks3m_queue_status_url( string $base_url, string $status ): string {
 		<li><a href="<?php echo wks3m_queue_status_url( $base_url, '' ); ?>" class="<?php echo '' === $status ? 'current' : ''; ?>"><?php esc_html_e( 'Toutes', 'waaskit-s3-migrator' ); ?> <span class="count">(<?php echo (int) array_sum( $counts ); ?>)</span></a> |</li>
 		<li><a href="<?php echo wks3m_queue_status_url( $base_url, 'pending' ); ?>" class="<?php echo 'pending' === $status ? 'current' : ''; ?>"><?php esc_html_e( 'En attente', 'waaskit-s3-migrator' ); ?> <span class="count">(<?php echo (int) $counts['pending']; ?>)</span></a> |</li>
 		<li><a href="<?php echo wks3m_queue_status_url( $base_url, 'imported' ); ?>" class="<?php echo 'imported' === $status ? 'current' : ''; ?>"><?php esc_html_e( 'Importées', 'waaskit-s3-migrator' ); ?> <span class="count">(<?php echo (int) $counts['imported']; ?>)</span></a> |</li>
+		<li><a href="<?php echo wks3m_queue_status_url( $base_url, 'replaced' ); ?>" class="<?php echo 'replaced' === $status ? 'current' : ''; ?>"><?php esc_html_e( 'Remplacées', 'waaskit-s3-migrator' ); ?> <span class="count">(<?php echo (int) $counts['replaced']; ?>)</span></a> |</li>
 		<li><a href="<?php echo wks3m_queue_status_url( $base_url, 'failed' ); ?>" class="<?php echo 'failed' === $status ? 'current' : ''; ?>"><?php esc_html_e( 'Échecs', 'waaskit-s3-migrator' ); ?> <span class="count">(<?php echo (int) $counts['failed']; ?>)</span></a></li>
 	</ul>
 
@@ -65,9 +69,26 @@ function wks3m_queue_status_url( string $base_url, string $status ): string {
 		<?php submit_button( __( 'Filtrer', 'waaskit-s3-migrator' ), 'secondary', '', false, [ 'style' => 'margin-left:.4em;' ] ); ?>
 	</form>
 
-	<p class="wks3m-import-mode">
+	<div class="wks3m-bulk-bar">
 		<label><input type="checkbox" id="wks3m-dry-run" checked /> <?php esc_html_e( 'Mode dry-run (simuler sans télécharger)', 'waaskit-s3-migrator' ); ?></label>
-	</p>
+		<label style="margin-left:1.5em;"><input type="checkbox" id="wks3m-auto-replace" checked /> <?php esc_html_e( 'Remplacer les URLs dans les articles après import', 'waaskit-s3-migrator' ); ?></label>
+		<button type="button" class="button button-primary" id="wks3m-bulk-all" style="margin-left:1.5em;">
+			<?php
+			printf(
+				/* translators: %d: number of pending rows */
+				esc_html__( 'Tout migrer (%d en attente)', 'waaskit-s3-migrator' ),
+				(int) $counts['pending']
+			);
+			?>
+		</button>
+		<button type="button" class="button" id="wks3m-bulk-selected"><?php esc_html_e( 'Migrer la sélection', 'waaskit-s3-migrator' ); ?></button>
+		<span class="spinner" id="wks3m-bulk-spinner" style="float:none;"></span>
+	</div>
+
+	<div id="wks3m-bulk-progress" class="wks3m-progress" hidden>
+		<div class="wks3m-progress-bar"><span></span></div>
+		<p class="wks3m-progress-label"></p>
+	</div>
 
 	<?php if ( empty( $data['items'] ) ) : ?>
 		<p><?php esc_html_e( 'Aucun résultat. Lance un scan depuis l\'onglet Scan.', 'waaskit-s3-migrator' ); ?></p>
@@ -75,13 +96,14 @@ function wks3m_queue_status_url( string $base_url, string $status ): string {
 		<table class="widefat striped wks3m-queue-table">
 			<thead>
 				<tr>
+					<td class="check-column"><input type="checkbox" id="wks3m-select-all" /></td>
 					<th style="width:72px"><?php esc_html_e( 'Aperçu', 'waaskit-s3-migrator' ); ?></th>
 					<th><?php esc_html_e( 'Fichier / Titre dérivé', 'waaskit-s3-migrator' ); ?></th>
 					<th><?php esc_html_e( 'Alt détecté', 'waaskit-s3-migrator' ); ?></th>
 					<th><?php esc_html_e( 'Hôte', 'waaskit-s3-migrator' ); ?></th>
 					<th><?php esc_html_e( 'Posts', 'waaskit-s3-migrator' ); ?></th>
 					<th><?php esc_html_e( 'Statut', 'waaskit-s3-migrator' ); ?></th>
-					<th style="width:120px"><?php esc_html_e( 'Action', 'waaskit-s3-migrator' ); ?></th>
+					<th style="width:180px"><?php esc_html_e( 'Action', 'waaskit-s3-migrator' ); ?></th>
 				</tr>
 			</thead>
 			<tbody>
@@ -89,8 +111,14 @@ function wks3m_queue_status_url( string $base_url, string $status ): string {
 					$variants = json_decode( (string) $row['source_url_variants'], true ) ?: [];
 					$posts    = json_decode( (string) $row['post_ids'], true ) ?: [];
 					$thumb    = $variants[0] ?? '';
+					$is_done  = in_array( $row['status'], [ 'imported', 'replaced' ], true );
 				?>
 					<tr data-id="<?php echo (int) $row['id']; ?>">
+						<th scope="row" class="check-column">
+							<?php if ( 'pending' === $row['status'] || 'failed' === $row['status'] ) : ?>
+								<input type="checkbox" class="wks3m-row-check" value="<?php echo (int) $row['id']; ?>" />
+							<?php endif; ?>
+						</th>
 						<td>
 							<?php if ( ! empty( $row['attachment_id'] ) ) : ?>
 								<?php echo wp_get_attachment_image( (int) $row['attachment_id'], [ 56, 56 ] ); ?>
@@ -133,12 +161,14 @@ function wks3m_queue_status_url( string $base_url, string $status ): string {
 							<?php endif; ?>
 						</td>
 						<td>
-							<?php if ( 'imported' !== $row['status'] ) : ?>
-								<button type="button" class="button wks3m-import-btn" data-id="<?php echo (int) $row['id']; ?>">
-									<?php esc_html_e( 'Importer', 'waaskit-s3-migrator' ); ?>
-								</button>
-							<?php else : ?>
+							<?php if ( 'replaced' === $row['status'] ) : ?>
 								<a class="button button-link" href="<?php echo esc_url( admin_url( 'post.php?post=' . (int) $row['attachment_id'] . '&action=edit' ) ); ?>" target="_blank"><?php esc_html_e( 'Voir média', 'waaskit-s3-migrator' ); ?></a>
+							<?php elseif ( 'imported' === $row['status'] ) : ?>
+								<button type="button" class="button wks3m-replace-btn" data-id="<?php echo (int) $row['id']; ?>"><?php esc_html_e( 'Remplacer URLs', 'waaskit-s3-migrator' ); ?></button>
+							<?php else : ?>
+								<button type="button" class="button button-primary wks3m-import-btn" data-id="<?php echo (int) $row['id']; ?>">
+									<?php esc_html_e( 'Migrer', 'waaskit-s3-migrator' ); ?>
+								</button>
 							<?php endif; ?>
 						</td>
 					</tr>

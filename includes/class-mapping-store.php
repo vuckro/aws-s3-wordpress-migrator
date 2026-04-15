@@ -142,4 +142,34 @@ class Mapping_Store {
 			[ 'id' => $id ]
 		);
 	}
+
+	public function mark_replaced( int $id ): void {
+		global $wpdb;
+		$wpdb->update(
+			$this->table(),
+			[
+				'status'      => 'replaced',
+				'replaced_at' => current_time( 'mysql' ),
+			],
+			[ 'id' => $id ]
+		);
+	}
+
+	/**
+	 * Return IDs of rows in a given status, oldest first.
+	 *
+	 * @return int[]
+	 */
+	public function ids_by_status( string $status, int $limit = 100 ): array {
+		global $wpdb;
+		$table = $this->table();
+		$rows  = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT id FROM {$table} WHERE status = %s ORDER BY id ASC LIMIT %d",
+				$status,
+				max( 1, $limit )
+			)
+		);
+		return array_map( 'intval', (array) $rows );
+	}
 }

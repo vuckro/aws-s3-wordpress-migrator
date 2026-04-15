@@ -3,7 +3,7 @@
  * Plugin Name:       AWS S3 WordPress Migrator
  * Plugin URI:        https://github.com/vuckro/aws-s3-wordpress-migrator
  * Description:       Scanne les URLs d'images externes présentes dans WordPress (bucket S3, CDN distant, CMS externe…), les télécharge dans la Media Library avec leurs métadonnées SEO (alt, titre), remplace les URLs dans le contenu et garde un log réversible. Configurable pour tout site source.
- * Version:           0.3.0-phase2
+ * Version:           0.4.0-phase4
  * Requires at least: 6.0
  * Requires PHP:      8.1
  * Author:            WaasKit
@@ -18,7 +18,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WKS3M_VERSION', '0.3.0-phase2' );
+define( 'WKS3M_VERSION', '0.4.0-phase4' );
 define( 'WKS3M_PLUGIN_FILE', __FILE__ );
 define( 'WKS3M_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WKS3M_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -30,6 +30,8 @@ require_once WKS3M_PLUGIN_DIR . 'includes/class-mapping-store.php';
 require_once WKS3M_PLUGIN_DIR . 'includes/class-metadata-extractor.php';
 require_once WKS3M_PLUGIN_DIR . 'includes/class-downloader.php';
 require_once WKS3M_PLUGIN_DIR . 'includes/class-importer.php';
+require_once WKS3M_PLUGIN_DIR . 'includes/class-replacer.php';
+require_once WKS3M_PLUGIN_DIR . 'includes/class-rollback-manager.php';
 require_once WKS3M_PLUGIN_DIR . 'includes/class-scanner.php';
 require_once WKS3M_PLUGIN_DIR . 'includes/class-plugin.php';
 require_once WKS3M_PLUGIN_DIR . 'admin/class-admin.php';

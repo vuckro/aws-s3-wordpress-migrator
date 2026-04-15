@@ -63,6 +63,11 @@ class Admin {
 					'import_failed' => __( 'Échec', 'waaskit-s3-migrator' ),
 					'dry_run_ok'    => __( 'Dry-run OK', 'waaskit-s3-migrator' ),
 					'confirm_real'  => __( 'Mode réel : l\'image sera téléchargée dans la Media Library. Continuer ?', 'waaskit-s3-migrator' ),
+					'confirm_bulk'  => __( 'Tu es sur le point de migrer toutes les images en attente en mode réel. Cette opération peut prendre du temps. Continuer ?', 'waaskit-s3-migrator' ),
+					'confirm_rollback' => __( 'Le contenu des articles va être restauré à son état d\'avant la migration. Continuer ?', 'waaskit-s3-migrator' ),
+					'replaced'      => __( 'Remplacée', 'waaskit-s3-migrator' ),
+					'rolled_back'   => __( 'Rollback effectué', 'waaskit-s3-migrator' ),
+					'bulk_progress' => __( 'Migration en cours…', 'waaskit-s3-migrator' ),
 				],
 			]
 		);
@@ -105,9 +110,9 @@ class Admin {
 					class="nav-tab <?php echo 'queue' === $tab ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e( 'File d\'attente', 'waaskit-s3-migrator' ); ?>
 				</a>
-				<a href="#" class="nav-tab disabled" aria-disabled="true">
+				<a href="<?php echo esc_url( admin_url( 'tools.php?page=' . self::MENU_SLUG . '&tab=history' ) ); ?>"
+					class="nav-tab <?php echo 'history' === $tab ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e( 'Historique & Rollback', 'waaskit-s3-migrator' ); ?>
-					<span class="wks3m-pill"><?php esc_html_e( 'Phase 4', 'waaskit-s3-migrator' ); ?></span>
 				</a>
 				<a href="#" class="nav-tab disabled" aria-disabled="true">
 					<?php esc_html_e( 'Réglages', 'waaskit-s3-migrator' ); ?>
@@ -118,6 +123,9 @@ class Admin {
 			switch ( $tab ) {
 				case 'queue':
 					require WKS3M_PLUGIN_DIR . 'admin/views/page-queue.php';
+					break;
+				case 'history':
+					require WKS3M_PLUGIN_DIR . 'admin/views/page-history.php';
 					break;
 				case 'scan':
 				default:

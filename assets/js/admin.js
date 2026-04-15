@@ -2,113 +2,57 @@
 (function ($) {
 	'use strict';
 
-	var state = {
+	/* ---------- Scan tab ---------- */
+
+	var scanState = {
 		offset: 0,
 		limit: 100,
-		totals: { processed: 0, urls_found: 0, base_keys: 0, already_known: 0 },
-		matches: {},
+		totals: { processed: 0, urls_found: 0, already_known: 0 },
 		total: 0,
 		running: false
 	};
 
-	function renderSummary() {
+	function renderScanSummary() {
 		var $s = $('#wks3m-scan-summary');
-		$s.find('.processed').text(state.totals.processed + ' / ' + state.total);
-		$s.find('.base-keys').text(Object.keys(state.matches).length);
-		$s.find('.urls-found').text(state.totals.urls_found);
-		$s.find('.already-known').text(state.totals.already_known);
+		$s.find('.processed').text(scanState.totals.processed + ' / ' + scanState.total);
+		$s.find('.urls-found').text(scanState.totals.urls_found);
 		$s.prop('hidden', false);
 	}
 
-	function renderProgress() {
-		var pct = state.total > 0 ? Math.min(100, Math.round((state.totals.processed / state.total) * 100)) : 0;
+	function renderScanProgress() {
+		var pct = scanState.total > 0 ? Math.min(100, Math.round((scanState.totals.processed / scanState.total) * 100)) : 0;
 		var $p = $('#wks3m-scan-progress');
 		$p.prop('hidden', false);
 		$p.find('.wks3m-progress-bar span').css('width', pct + '%');
-		$p.find('.wks3m-progress-label').text(pct + '% — ' + state.totals.processed + ' / ' + state.total);
+		$p.find('.wks3m-progress-label').text(pct + '% — ' + scanState.totals.processed + ' / ' + scanState.total);
 	}
 
-	function renderResultsTable() {
-		var $tbody = $('#wks3m-scan-results tbody').empty();
-		var keys = Object.keys(state.matches).sort();
-		keys.forEach(function (k) {
-			var m = state.matches[k];
-			var baseKey = m.base_key || k.split('|').pop();
-			var host = m.host || k.split('|')[0];
-			var variantsHtml = (m.variants || []).map(function (u) {
-				return '<code class="wks3m-url">' + $('<div/>').text(u).html() + '</code>';
-			}).join('<br>');
-			var postsHtml = (m.post_ids || []).map(function (pid) {
-				var url = '/wp-admin/post.php?post=' + pid + '&action=edit';
-				return '<a href="' + url + '" target="_blank">#' + pid + '</a>';
-			}).join(', ');
-			var status = m.already_known
-				? '<span class="wks3m-badge wks3m-badge-known">' + WKS3M.i18n.badge_known + '</span>'
-				: '<span class="wks3m-badge wks3m-badge-new">' + WKS3M.i18n.badge_new + '</span>';
-			var tr = '<tr>'
-				+ '<td><code>' + $('<div/>').text(baseKey).html() + '</code></td>'
-				+ '<td><code>' + $('<div/>').text(host).html() + '</code></td>'
-				+ '<td>' + variantsHtml + '</td>'
-				+ '<td>' + postsHtml + '</td>'
-				+ '<td>' + status + '</td>'
-				+ '</tr>';
-			$tbody.append(tr);
-		});
-		$('#wks3m-scan-results').prop('hidden', keys.length === 0);
-	}
-
-	function mergeBatch(data) {
-		state.total = data.total;
-		state.totals.processed += data.processed;
-		state.totals.urls_found += data.urls_found;
-		Object.keys(data.matches || {}).forEach(function (k) {
-			var incoming = data.matches[k];
-			var current = state.matches[k] || {
-				variants: [],
-				post_ids: [],
-				host: incoming.host,
-				base_key: incoming.base_key,
-				already_known: !!incoming.already_known
-			};
-			incoming.variants.forEach(function (v) {
-				if (current.variants.indexOf(v) === -1) current.variants.push(v);
-			});
-			incoming.post_ids.forEach(function (p) {
-				if (current.post_ids.indexOf(p) === -1) current.post_ids.push(p);
-			});
-			current.already_known = current.already_known || !!incoming.already_known;
-			state.matches[k] = current;
-		});
-		state.totals.already_known = Object.keys(state.matches).filter(function (k) {
-			return state.matches[k].already_known;
-		}).length;
-	}
-
-	function runBatch() {
-		if (!state.running) return;
+	function runScanBatch() {
+		if (!scanState.running) return;
 		$.post(WKS3M.ajax_url, {
 			action: 'wks3m_scan_batch',
 			nonce: WKS3M.nonce,
-			offset: state.offset,
-			limit: state.limit
+			offset: scanState.offset,
+			limit: scanState.limit
 		}).done(function (resp) {
 			if (!resp || !resp.success) {
-				state.running = false;
+				scanState.running = false;
 				$('#wks3m-scan-spinner').removeClass('is-active');
 				alert(WKS3M.i18n.error);
 				return;
 			}
 			var data = resp.data;
-			mergeBatch(data);
-			state.offset = data.next_offset;
-			renderProgress();
-			renderSummary();
-			renderResultsTable();
+			scanState.total = data.total;
+			scanState.totals.processed += data.processed;
+			scanState.totals.urls_found += data.urls_found;
+			scanState.offset = data.next_offset;
+			renderScanProgress();
+			renderScanSummary();
 
-			if (data.processed > 0 && state.offset < state.total) {
-				setTimeout(runBatch, 50);
+			if (data.processed > 0 && scanState.offset < scanState.total) {
+				setTimeout(runScanBatch, 50);
 			} else {
-				state.running = false;
+				scanState.running = false;
 				$('#wks3m-scan-spinner').removeClass('is-active');
 				$('#wks3m-scan-start').prop('disabled', false);
 				$('#wks3m-scan-done').prop('hidden', false);
@@ -123,16 +67,19 @@
 				});
 			}
 		}).fail(function () {
-			state.running = false;
+			scanState.running = false;
 			$('#wks3m-scan-spinner').removeClass('is-active');
 			alert(WKS3M.i18n.error);
 		});
 	}
 
+	/* ---------- Queue: single import ---------- */
+
 	function handleImportClick(e) {
 		var $btn = $(e.currentTarget);
 		var id = parseInt($btn.data('id'), 10);
 		var dryRun = $('#wks3m-dry-run').is(':checked');
+		var autoReplace = $('#wks3m-auto-replace').is(':checked');
 		if (!dryRun && !window.confirm(WKS3M.i18n.confirm_real)) {
 			return;
 		}
@@ -144,44 +91,199 @@
 			action: 'wks3m_import_row',
 			nonce: WKS3M.nonce,
 			id: id,
-			dry_run: dryRun ? 1 : 0
+			dry_run: dryRun ? 1 : 0,
+			auto_replace: autoReplace ? 1 : 0
 		}).done(function (resp) {
 			if (!resp || !resp.success) {
-				$btn.prop('disabled', false).text('Importer');
-				$status.text(WKS3M.i18n.import_failed).addClass('wks3m-status-failed');
+				$btn.prop('disabled', false).text('Migrer');
+				$status.text(WKS3M.i18n.import_failed);
 				alert((resp && resp.data && resp.data.message) || WKS3M.i18n.error);
 				return;
 			}
 			if (resp.data.dry_run) {
-				$btn.prop('disabled', false).text('Importer');
+				$btn.prop('disabled', false).text('Migrer');
 				$status.text(WKS3M.i18n.dry_run_ok);
 				var p = resp.data.preview;
-				alert(
-					'Dry-run\n\n' +
-					'Source: ' + p.source_url + '\n' +
-					'Fichier: ' + p.would_save_as + '\n' +
-					'Titre: ' + p.post_title + '\n' +
-					'Alt: ' + p.alt_text
-				);
-			} else {
-				$status.text(WKS3M.i18n.imported).removeClass().addClass('wks3m-status wks3m-status-imported');
-				$btn.replaceWith('<a class="button button-link" href="/wp-admin/post.php?post=' + resp.data.attachment_id + '&action=edit" target="_blank">Voir média</a>');
+				alert('Dry-run\n\nSource: ' + p.source_url + '\nFichier: ' + p.would_save_as + '\nTitre: ' + p.post_title + '\nAlt: ' + p.alt_text);
+				return;
 			}
+			if (resp.data.replaced) {
+				$status.removeClass().addClass('wks3m-status wks3m-status-replaced').text(WKS3M.i18n.replaced);
+			} else {
+				$status.removeClass().addClass('wks3m-status wks3m-status-imported').text(WKS3M.i18n.imported);
+			}
+			$btn.replaceWith('<a class="button button-link" href="/wp-admin/post.php?post=' + resp.data.attachment_id + '&action=edit" target="_blank">Voir média</a>');
 		}).fail(function () {
-			$btn.prop('disabled', false).text('Importer');
+			$btn.prop('disabled', false).text('Migrer');
 			alert(WKS3M.i18n.error);
 		});
 	}
 
+	/* ---------- Queue: replace only ---------- */
+
+	function handleReplaceClick(e) {
+		var $btn = $(e.currentTarget);
+		var id = parseInt($btn.data('id'), 10);
+		$btn.prop('disabled', true);
+		$.post(WKS3M.ajax_url, {
+			action: 'wks3m_replace_row',
+			nonce: WKS3M.nonce,
+			id: id
+		}).done(function (resp) {
+			if (!resp || !resp.success) {
+				$btn.prop('disabled', false);
+				alert((resp && resp.data && resp.data.message) || WKS3M.i18n.error);
+				return;
+			}
+			var $row = $btn.closest('tr');
+			$row.find('.wks3m-status').removeClass().addClass('wks3m-status wks3m-status-replaced').text(WKS3M.i18n.replaced);
+			$btn.replaceWith('<em>' + WKS3M.i18n.replaced + '</em>');
+		}).fail(function () {
+			$btn.prop('disabled', false);
+			alert(WKS3M.i18n.error);
+		});
+	}
+
+	/* ---------- History: rollback ---------- */
+
+	function handleRollbackClick(e) {
+		if (!window.confirm(WKS3M.i18n.confirm_rollback)) return;
+		var $btn = $(e.currentTarget);
+		var id = parseInt($btn.data('id'), 10);
+		var deleteMedia = $btn.closest('td').find('.wks3m-rollback-delete').is(':checked');
+		$btn.prop('disabled', true);
+		$.post(WKS3M.ajax_url, {
+			action: 'wks3m_rollback_row',
+			nonce: WKS3M.nonce,
+			id: id,
+			delete_attachment: deleteMedia ? 1 : 0
+		}).done(function (resp) {
+			if (!resp || !resp.success) {
+				$btn.prop('disabled', false);
+				alert((resp && resp.data && resp.data.message) || WKS3M.i18n.error);
+				return;
+			}
+			var $row = $btn.closest('tr');
+			$row.find('.wks3m-status').removeClass().addClass('wks3m-status wks3m-status-rolled_back').text(WKS3M.i18n.rolled_back);
+			$btn.replaceWith('<em>' + WKS3M.i18n.rolled_back + '</em>');
+		}).fail(function () {
+			$btn.prop('disabled', false);
+			alert(WKS3M.i18n.error);
+		});
+	}
+
+	/* ---------- Bulk import ---------- */
+
+	var bulkState = { ids: [], index: 0, running: false, errors: 0, success: 0 };
+
+	function renderBulkProgress() {
+		var total = bulkState.ids.length;
+		var done = bulkState.index;
+		var pct = total > 0 ? Math.round((done / total) * 100) : 0;
+		var $p = $('#wks3m-bulk-progress');
+		$p.prop('hidden', false);
+		$p.find('.wks3m-progress-bar span').css('width', pct + '%');
+		$p.find('.wks3m-progress-label').text(
+			pct + '% — ' + done + ' / ' + total +
+			' (✔ ' + bulkState.success + ' · ✖ ' + bulkState.errors + ')'
+		);
+	}
+
+	function runBulkNext() {
+		if (!bulkState.running || bulkState.index >= bulkState.ids.length) {
+			bulkState.running = false;
+			$('#wks3m-bulk-spinner').removeClass('is-active');
+			$('#wks3m-bulk-all, #wks3m-bulk-selected').prop('disabled', false);
+			renderBulkProgress();
+			if (bulkState.ids.length > 0) {
+				setTimeout(function () {
+					if (window.confirm('Migration terminée (✔ ' + bulkState.success + ' · ✖ ' + bulkState.errors + '). Recharger la page pour voir l\'état à jour ?')) {
+						location.reload();
+					}
+				}, 200);
+			}
+			return;
+		}
+		var id = bulkState.ids[bulkState.index];
+		var dryRun = $('#wks3m-dry-run').is(':checked');
+		var autoReplace = $('#wks3m-auto-replace').is(':checked');
+
+		$.post(WKS3M.ajax_url, {
+			action: 'wks3m_import_row',
+			nonce: WKS3M.nonce,
+			id: id,
+			dry_run: dryRun ? 1 : 0,
+			auto_replace: autoReplace ? 1 : 0
+		}).always(function (resp) {
+			if (resp && resp.success) {
+				bulkState.success++;
+				var status = resp.data && resp.data.replaced ? 'replaced' : (resp.data && resp.data.dry_run ? 'pending' : 'imported');
+				var $row = $('tr[data-id="' + id + '"]');
+				if ($row.length) {
+					$row.find('.wks3m-status').removeClass().addClass('wks3m-status wks3m-status-' + status).text(status);
+				}
+			} else {
+				bulkState.errors++;
+			}
+			bulkState.index++;
+			renderBulkProgress();
+			setTimeout(runBulkNext, 80);
+		});
+	}
+
+	function startBulk(ids) {
+		if (!ids || !ids.length) {
+			alert('Aucune ligne à migrer.');
+			return;
+		}
+		var dryRun = $('#wks3m-dry-run').is(':checked');
+		if (!dryRun && !window.confirm(WKS3M.i18n.confirm_bulk)) {
+			return;
+		}
+		bulkState = { ids: ids, index: 0, running: true, errors: 0, success: 0 };
+		$('#wks3m-bulk-all, #wks3m-bulk-selected').prop('disabled', true);
+		$('#wks3m-bulk-spinner').addClass('is-active');
+		$('#wks3m-bulk-progress').prop('hidden', false);
+		$('#wks3m-bulk-progress .wks3m-progress-label').text(WKS3M.i18n.bulk_progress);
+		renderBulkProgress();
+		runBulkNext();
+	}
+
+	function handleBulkAll() {
+		$.post(WKS3M.ajax_url, {
+			action: 'wks3m_pending_ids',
+			nonce: WKS3M.nonce,
+			limit: 5000
+		}).done(function (resp) {
+			if (!resp || !resp.success) { alert(WKS3M.i18n.error); return; }
+			startBulk(resp.data.ids || []);
+		}).fail(function () { alert(WKS3M.i18n.error); });
+	}
+
+	function handleBulkSelected() {
+		var ids = $('.wks3m-row-check:checked').map(function () { return parseInt(this.value, 10); }).get();
+		startBulk(ids);
+	}
+
+	/* ---------- Bind ---------- */
+
 	$(function () {
 		$(document).on('click', '.wks3m-import-btn', handleImportClick);
+		$(document).on('click', '.wks3m-replace-btn', handleReplaceClick);
+		$(document).on('click', '.wks3m-rollback-btn', handleRollbackClick);
+
+		$('#wks3m-bulk-all').on('click', handleBulkAll);
+		$('#wks3m-bulk-selected').on('click', handleBulkSelected);
+
+		$('#wks3m-select-all').on('change', function () {
+			$('.wks3m-row-check').prop('checked', $(this).is(':checked'));
+		});
 
 		$('#wks3m-scan-start').on('click', function () {
-			state = {
+			scanState = {
 				offset: 0,
 				limit: parseInt($('#wks3m-scan-batch').val(), 10) || 100,
-				totals: { processed: 0, urls_found: 0, base_keys: 0, already_known: 0 },
-				matches: {},
+				totals: { processed: 0, urls_found: 0, already_known: 0 },
 				total: 0,
 				running: true
 			};
@@ -190,7 +292,7 @@
 			$('#wks3m-scan-progress .wks3m-progress-bar span').css('width', '0%');
 			$('#wks3m-scan-progress .wks3m-progress-label').text(WKS3M.i18n.scanning);
 			$('#wks3m-scan-progress').prop('hidden', false);
-			runBatch();
+			runScanBatch();
 		});
 	});
 }(jQuery));

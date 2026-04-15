@@ -69,6 +69,18 @@
 }
 .wks3m-queue-filters { margin: .8em 0; }
 .wks3m-import-mode { margin: .8em 0 .4em; }
+.wks3m-bulk-bar {
+	margin: 1em 0 .5em;
+	padding: 10px 14px;
+	background: #f8fafc;
+	border: 1px solid #e2e8f0;
+	border-radius: 4px;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: .3em;
+}
+.wks3m-bulk-bar .spinner { margin-left: .5em; }
 .wks3m-queue-table img.wks3m-thumb {
 	width: 56px; height: 56px; object-fit: cover; border-radius: 3px; background: #f3f4f6;
 }
