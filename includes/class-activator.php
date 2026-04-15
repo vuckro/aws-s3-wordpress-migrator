@@ -12,7 +12,7 @@ defined( 'ABSPATH' ) || exit;
 class Activator {
 
 	public const TABLE_VERSION_OPTION = 'wks3m_db_version';
-	public const CURRENT_DB_VERSION   = '1.1.0';
+	public const CURRENT_DB_VERSION   = '1.2.0';
 
 	public static function table_name(): string {
 		global $wpdb;
@@ -44,11 +44,15 @@ class Activator {
 			source_url_base VARCHAR(500) NOT NULL,
 			source_url_variants LONGTEXT NULL,
 			source_host VARCHAR(255) NULL,
+			base_key VARCHAR(500) NULL,
+			alt_text TEXT NULL,
+			derived_title VARCHAR(255) NULL,
 			attachment_id BIGINT UNSIGNED NULL,
 			post_ids LONGTEXT NULL,
 			status VARCHAR(20) NOT NULL DEFAULT 'pending',
 			error_message TEXT NULL,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_seen_at DATETIME NULL,
 			replaced_at DATETIME NULL,
 			rolled_back_at DATETIME NULL,
 			PRIMARY KEY  (id),

@@ -2,8 +2,6 @@
 /**
  * Mapping store — read/write access to the migration log table.
  *
- * Phase 1: read-only helpers only. Write methods arrive in Phase 3/4.
- *
  * @package WaasKitS3Migrator
  */
 
@@ -17,9 +15,6 @@ class Mapping_Store {
 		return Activator::table_name();
 	}
 
-	/**
-	 * Return a row by its base source URL, or null.
-	 */
 	public function find_by_base_url( string $base_url ): ?array {
 		global $wpdb;
 		$table = $this->table();
@@ -30,17 +25,84 @@ class Mapping_Store {
 		return $row ?: null;
 	}
 
+	public function find_by_id( int $id ): ?array {
+		global $wpdb;
+		$table = $this->table();
+		$row   = $wpdb->get_row(
+			$wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ),
+			ARRAY_A
+		);
+		return $row ?: null;
+	}
+
+	public function is_known( string $base_url ): bool {
+		return null !== $this->find_by_base_url( $base_url );
+	}
+
 	/**
-	 * Return counts by status.
+	 * Paginated fetch for the Queue tab.
 	 *
-	 * @return array{pending:int,downloaded:int,replaced:int,rolled_back:int,failed:int}
+	 * @param array{status?:string,host?:string,search?:string,per_page?:int,page?:int} $args
+	 * @return array{items:array[],total:int,pages:int,page:int,per_page:int}
 	 */
+	public function list( array $args = [] ): array {
+		global $wpdb;
+		$table = $this->table();
+
+		$per_page = max( 1, min( 200, (int) ( $args['per_page'] ?? 25 ) ) );
+		$page     = max( 1, (int) ( $args['page'] ?? 1 ) );
+		$offset   = ( $page - 1 ) * $per_page;
+
+		$where  = [];
+		$params = [];
+		if ( ! empty( $args['status'] ) ) {
+			$where[]  = 'status = %s';
+			$params[] = (string) $args['status'];
+		}
+		if ( ! empty( $args['host'] ) ) {
+			$where[]  = 'source_host = %s';
+			$params[] = (string) $args['host'];
+		}
+		if ( ! empty( $args['search'] ) ) {
+			$like     = '%' . $wpdb->esc_like( (string) $args['search'] ) . '%';
+			$where[]  = '(base_key LIKE %s OR derived_title LIKE %s OR alt_text LIKE %s)';
+			$params[] = $like; $params[] = $like; $params[] = $like;
+		}
+		$where_sql = $where ? ( 'WHERE ' . implode( ' AND ', $where ) ) : '';
+
+		$total_sql = "SELECT COUNT(*) FROM {$table} {$where_sql}";
+		$total     = $params
+			? (int) $wpdb->get_var( $wpdb->prepare( $total_sql, ...$params ) )
+			: (int) $wpdb->get_var( $total_sql );
+
+		$list_sql = "SELECT * FROM {$table} {$where_sql} ORDER BY id DESC LIMIT %d OFFSET %d";
+		$items    = $wpdb->get_results(
+			$wpdb->prepare( $list_sql, ...array_merge( $params, [ $per_page, $offset ] ) ),
+			ARRAY_A
+		);
+
+		return [
+			'items'    => $items ?: [],
+			'total'    => $total,
+			'pages'    => (int) ceil( $total / $per_page ),
+			'page'     => $page,
+			'per_page' => $per_page,
+		];
+	}
+
+	public function distinct_hosts(): array {
+		global $wpdb;
+		$table = $this->table();
+		$rows  = $wpdb->get_col( "SELECT DISTINCT source_host FROM {$table} WHERE source_host IS NOT NULL ORDER BY source_host ASC" );
+		return array_values( array_filter( (array) $rows ) );
+	}
+
 	public function counts_by_status(): array {
 		global $wpdb;
 		$table = $this->table();
 		$out   = [
 			'pending'     => 0,
-			'downloaded'  => 0,
+			'imported'    => 0,
 			'replaced'    => 0,
 			'rolled_back' => 0,
 			'failed'      => 0,
@@ -55,10 +117,29 @@ class Mapping_Store {
 		return $out;
 	}
 
-	/**
-	 * Check if the mapping table already knows about a base URL.
-	 */
-	public function is_known( string $base_url ): bool {
-		return null !== $this->find_by_base_url( $base_url );
+	public function mark_imported( int $id, int $attachment_id ): void {
+		global $wpdb;
+		$wpdb->update(
+			$this->table(),
+			[
+				'status'        => 'imported',
+				'attachment_id' => $attachment_id,
+				'error_message' => null,
+				'replaced_at'   => null,
+			],
+			[ 'id' => $id ]
+		);
+	}
+
+	public function mark_failed( int $id, string $error ): void {
+		global $wpdb;
+		$wpdb->update(
+			$this->table(),
+			[
+				'status'        => 'failed',
+				'error_message' => $error,
+			],
+			[ 'id' => $id ]
+		);
 	}
 }

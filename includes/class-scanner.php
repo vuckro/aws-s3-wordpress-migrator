@@ -1,15 +1,10 @@
 <?php
 /**
- * Scanner — finds external image URLs across wp_posts, wp_postmeta, wp_options.
+ * Scanner — finds external image URLs across wp_posts and persists results.
  *
- * Detection strategy:
- *   - Match any http(s) URL ending in a known image extension
- *     (jpg, jpeg, png, gif, webp, svg, avif), optionally with a query string.
- *   - If user provided explicit source hosts (Settings::source_hosts), keep only
- *     URLs whose host is in that list.
- *   - Otherwise, if auto-detect is enabled, keep any URL whose host ≠ site host.
- *
- * Phase 1: read-only. No writes, no side effects.
+ * Phase 2: still read-only on the host site, but now writes to the migration
+ * log table (upsert) so the Queue tab can paginate results without replaying
+ * the full scan.
  *
  * @package WaasKitS3Migrator
  */
@@ -22,15 +17,26 @@ class Scanner {
 
 	/**
 	 * Matches any http(s) URL that ends with a known image extension,
-	 * optionally followed by a query string.
+	 * optionally followed by a query string. Handles JSON-escaped slashes.
 	 */
 	public static function url_regex(): string {
 		$ext = implode( '|', array_map( 'preg_quote', Settings::IMAGE_EXTENSIONS ) );
-		return '#https?://[^\s"\'<>)\]]+?\.(?:' . $ext . ')(?:\?[^\s"\'<>)\]]*)?#i';
+		return '#https?:(?:\\\\?/){2}[^\s"\'<>)\]\\\\]+?\.(?:' . $ext . ')(?:\?[^\s"\'<>)\]\\\\]*)?#i';
 	}
 
 	/**
-	 * Scan a single content string and return distinct external image URLs.
+	 * Turn any captured URL string into a canonical form:
+	 *   - unescape JSON `\/` → `/`
+	 *   - drop trailing punctuation sometimes captured inside serialized JSON
+	 */
+	public static function normalize_url( string $url ): string {
+		$url = str_replace( '\\/', '/', $url );
+		$url = rtrim( $url, '\\",;:)' );
+		return $url;
+	}
+
+	/**
+	 * Scan a single content string and return distinct, canonicalized URLs.
 	 *
 	 * @return string[]
 	 */
@@ -50,7 +56,7 @@ class Scanner {
 
 		$out = [];
 		foreach ( $m[0] as $url ) {
-			$url  = rtrim( $url, '\\",;:)' );
+			$url  = self::normalize_url( $url );
 			$host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
 			if ( '' === $host ) {
 				continue;
@@ -64,7 +70,6 @@ class Scanner {
 					continue;
 				}
 			} else {
-				// No hosts configured and auto-detect disabled → nothing to scan.
 				return [];
 			}
 			$out[ $url ] = true;
@@ -73,8 +78,8 @@ class Scanner {
 	}
 
 	/**
-	 * Given a full image URL, return its base filename (optionally stripping
-	 * Strapi size prefixes large_/medium_/small_/thumbnail_).
+	 * Given a canonical URL, return its base filename (optionally stripping
+	 * Strapi size prefixes).
 	 */
 	public static function base_key( string $url ): string {
 		$path     = (string) wp_parse_url( $url, PHP_URL_PATH );
@@ -90,20 +95,11 @@ class Scanner {
 		return $filename;
 	}
 
-	/**
-	 * Host + base filename — ensures two different CDNs hosting the same
-	 * filename don't collide.
-	 */
 	public static function composite_key( string $url ): string {
 		$host = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
 		return $host . '|' . self::base_key( $url );
 	}
 
-	/**
-	 * Build the SQL LIKE patterns used to pre-filter candidate posts.
-	 *
-	 * @return string[]
-	 */
 	private function like_patterns(): array {
 		global $wpdb;
 		$hosts = Settings::source_hosts();
@@ -121,16 +117,7 @@ class Scanner {
 	}
 
 	/**
-	 * Scan a batch of posts by offset/limit.
-	 *
-	 * @return array{
-	 *     processed:int,
-	 *     total:int,
-	 *     next_offset:int,
-	 *     urls_found:int,
-	 *     base_keys_found:int,
-	 *     matches: array<string, array{variants: string[], post_ids: int[], host: string, base_key: string}>
-	 * }
+	 * Scan a batch of posts. Persists results to the migration log (upsert).
 	 */
 	public function scan_posts_batch( int $offset = 0, int $limit = 100 ): array {
 		global $wpdb;
@@ -157,29 +144,41 @@ class Scanner {
 
 		$matches = [];
 		foreach ( (array) $rows as $row ) {
-			$urls = $this->extract_urls( (string) $row['post_content'] );
+			$urls    = $this->extract_urls( (string) $row['post_content'] );
+			$content = (string) $row['post_content'];
 			foreach ( $urls as $u ) {
 				$key = self::composite_key( $u );
 				if ( '|' === $key || '' === $key ) {
 					continue;
 				}
 				$matches[ $key ] ??= [
-					'variants' => [],
-					'post_ids' => [],
-					'host'     => strtolower( (string) wp_parse_url( $u, PHP_URL_HOST ) ),
-					'base_key' => self::base_key( $u ),
+					'variants'       => [],
+					'post_ids'       => [],
+					'host'           => strtolower( (string) wp_parse_url( $u, PHP_URL_HOST ) ),
+					'base_key'       => self::base_key( $u ),
+					'contents_seen'  => [],
 				];
 				if ( ! in_array( $u, $matches[ $key ]['variants'], true ) ) {
 					$matches[ $key ]['variants'][] = $u;
 				}
 				$pid = (int) $row['ID'];
 				if ( ! in_array( $pid, $matches[ $key ]['post_ids'], true ) ) {
-					$matches[ $key ]['post_ids'][] = $pid;
+					$matches[ $key ]['post_ids'][]      = $pid;
+					$matches[ $key ]['contents_seen'][] = $content;
 				}
 			}
 		}
 
-		$urls_found = array_sum( array_map( static fn( $v ) => count( $v['variants'] ), $matches ) );
+		$urls_found = 0;
+		foreach ( $matches as $key => &$m ) {
+			$urls_found                += count( $m['variants'] );
+			// Extract alt from the first content that referenced this image.
+			$m['alt_text']      = Metadata_Extractor::extract_alt( $m['contents_seen'][0] ?? '', $m['variants'] );
+			$m['derived_title'] = Metadata_Extractor::derive_title( $m['base_key'] );
+			unset( $m['contents_seen'] );
+			$this->upsert_result( $key, $m );
+		}
+		unset( $m );
 
 		return [
 			'processed'       => count( (array) $rows ),
@@ -187,15 +186,62 @@ class Scanner {
 			'next_offset'     => $offset + count( (array) $rows ),
 			'urls_found'      => (int) $urls_found,
 			'base_keys_found' => count( $matches ),
-			'matches'         => $matches,
+			'matches'         => $matches, // kept for backwards-compat with the scan tab counters
 		];
 	}
 
 	/**
-	 * Count external image hits in wp_postmeta and wp_options (summary only).
-	 *
-	 * @return array{postmeta:int,options:int}
+	 * Upsert a single scan result into the migration log.
 	 */
+	private function upsert_result( string $key, array $data ): void {
+		global $wpdb;
+		$table = Activator::table_name();
+
+		$existing = $wpdb->get_row(
+			$wpdb->prepare( "SELECT id, status, alt_text FROM {$table} WHERE source_url_base = %s", $key ),
+			ARRAY_A
+		);
+
+		$now      = current_time( 'mysql' );
+		$variants = wp_json_encode( array_values( $data['variants'] ) );
+		$posts    = wp_json_encode( array_values( $data['post_ids'] ) );
+
+		if ( $existing ) {
+			// Don't overwrite an imported row's metadata blindly.
+			$payload = [
+				'source_url_variants' => $variants,
+				'post_ids'            => $posts,
+				'last_seen_at'        => $now,
+				'source_host'         => $data['host'],
+				'base_key'            => $data['base_key'],
+			];
+			if ( empty( $existing['alt_text'] ) && ! empty( $data['alt_text'] ) ) {
+				$payload['alt_text'] = $data['alt_text'];
+			}
+			if ( empty( $existing['alt_text'] ) || 'pending' === $existing['status'] ) {
+				$payload['derived_title'] = $data['derived_title'];
+			}
+			$wpdb->update( $table, $payload, [ 'id' => (int) $existing['id'] ] );
+			return;
+		}
+
+		$wpdb->insert(
+			$table,
+			[
+				'source_url_base'     => $key,
+				'source_host'         => $data['host'],
+				'base_key'            => $data['base_key'],
+				'source_url_variants' => $variants,
+				'post_ids'            => $posts,
+				'alt_text'            => $data['alt_text'],
+				'derived_title'       => $data['derived_title'],
+				'status'              => 'pending',
+				'last_seen_at'        => $now,
+				'created_at'          => $now,
+			]
+		);
+	}
+
 	public function count_secondary_sources(): array {
 		global $wpdb;
 		$patterns = $this->like_patterns();
@@ -209,9 +255,6 @@ class Scanner {
 			$wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->options} WHERE {$where_op}", ...$patterns )
 		);
 
-		return [
-			'postmeta' => $postmeta,
-			'options'  => $options,
-		];
+		return [ 'postmeta' => $postmeta, 'options' => $options ];
 	}
 }

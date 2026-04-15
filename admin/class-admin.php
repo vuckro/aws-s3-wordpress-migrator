@@ -58,6 +58,11 @@ class Admin {
 					'error'         => __( 'Erreur pendant le scan.', 'waaskit-s3-migrator' ),
 					'badge_new'     => __( 'nouvelle', 'waaskit-s3-migrator' ),
 					'badge_known'   => __( 'déjà connue', 'waaskit-s3-migrator' ),
+					'importing'     => __( 'Import en cours…', 'waaskit-s3-migrator' ),
+					'imported'      => __( 'Importée', 'waaskit-s3-migrator' ),
+					'import_failed' => __( 'Échec', 'waaskit-s3-migrator' ),
+					'dry_run_ok'    => __( 'Dry-run OK', 'waaskit-s3-migrator' ),
+					'confirm_real'  => __( 'Mode réel : l\'image sera téléchargée dans la Media Library. Continuer ?', 'waaskit-s3-migrator' ),
 				],
 			]
 		);
@@ -96,9 +101,9 @@ class Admin {
 					class="nav-tab <?php echo 'scan' === $tab ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e( 'Scan', 'waaskit-s3-migrator' ); ?>
 				</a>
-				<a href="#" class="nav-tab disabled" aria-disabled="true">
+				<a href="<?php echo esc_url( admin_url( 'tools.php?page=' . self::MENU_SLUG . '&tab=queue' ) ); ?>"
+					class="nav-tab <?php echo 'queue' === $tab ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e( 'File d\'attente', 'waaskit-s3-migrator' ); ?>
-					<span class="wks3m-pill"><?php esc_html_e( 'Phases 2 & 3', 'waaskit-s3-migrator' ); ?></span>
 				</a>
 				<a href="#" class="nav-tab disabled" aria-disabled="true">
 					<?php esc_html_e( 'Historique & Rollback', 'waaskit-s3-migrator' ); ?>
@@ -111,6 +116,9 @@ class Admin {
 			</nav>
 			<?php
 			switch ( $tab ) {
+				case 'queue':
+					require WKS3M_PLUGIN_DIR . 'admin/views/page-queue.php';
+					break;
 				case 'scan':
 				default:
 					require WKS3M_PLUGIN_DIR . 'admin/views/page-scan.php';

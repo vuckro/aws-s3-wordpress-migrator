@@ -111,6 +111,7 @@
 				state.running = false;
 				$('#wks3m-scan-spinner').removeClass('is-active');
 				$('#wks3m-scan-start').prop('disabled', false);
+				$('#wks3m-scan-done').prop('hidden', false);
 				$.post(WKS3M.ajax_url, {
 					action: 'wks3m_scan_secondary',
 					nonce: WKS3M.nonce
@@ -128,7 +129,53 @@
 		});
 	}
 
+	function handleImportClick(e) {
+		var $btn = $(e.currentTarget);
+		var id = parseInt($btn.data('id'), 10);
+		var dryRun = $('#wks3m-dry-run').is(':checked');
+		if (!dryRun && !window.confirm(WKS3M.i18n.confirm_real)) {
+			return;
+		}
+		$btn.prop('disabled', true).text(WKS3M.i18n.importing);
+		var $row = $btn.closest('tr');
+		var $status = $row.find('.wks3m-status');
+
+		$.post(WKS3M.ajax_url, {
+			action: 'wks3m_import_row',
+			nonce: WKS3M.nonce,
+			id: id,
+			dry_run: dryRun ? 1 : 0
+		}).done(function (resp) {
+			if (!resp || !resp.success) {
+				$btn.prop('disabled', false).text('Importer');
+				$status.text(WKS3M.i18n.import_failed).addClass('wks3m-status-failed');
+				alert((resp && resp.data && resp.data.message) || WKS3M.i18n.error);
+				return;
+			}
+			if (resp.data.dry_run) {
+				$btn.prop('disabled', false).text('Importer');
+				$status.text(WKS3M.i18n.dry_run_ok);
+				var p = resp.data.preview;
+				alert(
+					'Dry-run\n\n' +
+					'Source: ' + p.source_url + '\n' +
+					'Fichier: ' + p.would_save_as + '\n' +
+					'Titre: ' + p.post_title + '\n' +
+					'Alt: ' + p.alt_text
+				);
+			} else {
+				$status.text(WKS3M.i18n.imported).removeClass().addClass('wks3m-status wks3m-status-imported');
+				$btn.replaceWith('<a class="button button-link" href="/wp-admin/post.php?post=' + resp.data.attachment_id + '&action=edit" target="_blank">Voir média</a>');
+			}
+		}).fail(function () {
+			$btn.prop('disabled', false).text('Importer');
+			alert(WKS3M.i18n.error);
+		});
+	}
+
 	$(function () {
+		$(document).on('click', '.wks3m-import-btn', handleImportClick);
+
 		$('#wks3m-scan-start').on('click', function () {
 			state = {
 				offset: 0,

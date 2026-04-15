@@ -59,3 +59,38 @@
 }
 .wks3m-badge-new { background: #dcfce7; color: #166534; }
 .wks3m-badge-known { background: #e2e8f0; color: #475569; }
+
+.wks3m-scan-done {
+	margin-top: 1em;
+	padding: 10px 14px;
+	background: #ecfdf5;
+	border-left: 4px solid #10b981;
+	color: #065f46;
+}
+.wks3m-queue-filters { margin: .8em 0; }
+.wks3m-import-mode { margin: .8em 0 .4em; }
+.wks3m-queue-table img.wks3m-thumb {
+	width: 56px; height: 56px; object-fit: cover; border-radius: 3px; background: #f3f4f6;
+}
+.wks3m-queue-table .wks3m-url-tiny {
+	font-size: 11px; color: #64748b;
+	display: inline-block; max-width: 320px;
+	overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;
+}
+.wks3m-queue-table .wks3m-variants {
+	margin-top: 4px; font-size: 11px;
+}
+.wks3m-queue-table .wks3m-variants a {
+	display: inline-block; margin-right: 6px; color: #64748b;
+}
+.wks3m-queue-table .wks3m-more { color: #64748b; font-size: 11px; }
+.wks3m-status {
+	display: inline-block; padding: 2px 8px; border-radius: 10px;
+	font-size: 11px; font-weight: 600; text-transform: capitalize;
+}
+.wks3m-status-pending { background: #fef3c7; color: #92400e; }
+.wks3m-status-imported { background: #dcfce7; color: #166534; }
+.wks3m-status-failed { background: #fee2e2; color: #991b1b; }
+.wks3m-status-replaced { background: #dbeafe; color: #1e40af; }
+.wks3m-status-rolled_back { background: #e2e8f0; color: #475569; }
+.wks3m-error { color: #991b1b; font-size: 11px; }

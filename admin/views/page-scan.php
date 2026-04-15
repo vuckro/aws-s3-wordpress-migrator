@@ -119,22 +119,15 @@ $saved          = isset( $_GET['sources_saved'] );
 		</table>
 	</div>
 
-	<div id="wks3m-scan-results" class="wks3m-results" hidden>
-		<h3><?php esc_html_e( 'Aperçu des images détectées', 'waaskit-s3-migrator' ); ?></h3>
-		<p class="description">
-			<?php esc_html_e( 'Liste en lecture seule. Les actions de migration seront disponibles dans l\'onglet File d\'attente (Phases 2 & 3).', 'waaskit-s3-migrator' ); ?>
+	<div id="wks3m-scan-done" class="wks3m-scan-done" hidden>
+		<p>
+			<?php
+			printf(
+				/* translators: %s: Queue tab link */
+				esc_html__( 'Scan terminé. Passe à l\'onglet %s pour voir les images détectées, leurs métadonnées, et lancer les imports.', 'waaskit-s3-migrator' ),
+				'<a href="' . esc_url( admin_url( 'tools.php?page=wks3m&tab=queue' ) ) . '"><strong>File d\'attente</strong></a>'
+			);
+			?>
 		</p>
-		<table class="widefat striped wks3m-table">
-			<thead>
-				<tr>
-					<th><?php esc_html_e( 'Fichier', 'waaskit-s3-migrator' ); ?></th>
-					<th><?php esc_html_e( 'Hôte source', 'waaskit-s3-migrator' ); ?></th>
-					<th><?php esc_html_e( 'Variantes', 'waaskit-s3-migrator' ); ?></th>
-					<th><?php esc_html_e( 'Posts utilisant cette image', 'waaskit-s3-migrator' ); ?></th>
-					<th><?php esc_html_e( 'Statut', 'waaskit-s3-migrator' ); ?></th>
-				</tr>
-			</thead>
-			<tbody></tbody>
-		</table>
 	</div>
 </div>
