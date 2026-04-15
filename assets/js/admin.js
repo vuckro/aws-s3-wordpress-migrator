@@ -73,27 +73,33 @@
 		});
 	}
 
-	/* ---------- Queue: single import ---------- */
+	/* ---------- Queue: options + single import ---------- */
+
+	function collectImportOptions() {
+		return {
+			dry_run: $('#wks3m-dry-run').is(':checked') ? 1 : 0,
+			auto_replace: $('#wks3m-auto-replace').is(':checked') ? 1 : 0,
+			use_alt_as_title: $('#wks3m-use-alt-as-title').is(':checked') ? 1 : 0,
+			fill_empty_alts: $('#wks3m-fill-empty-alts').is(':checked') ? 1 : 0
+		};
+	}
 
 	function handleImportClick(e) {
 		var $btn = $(e.currentTarget);
 		var id = parseInt($btn.data('id'), 10);
-		var dryRun = $('#wks3m-dry-run').is(':checked');
-		var autoReplace = $('#wks3m-auto-replace').is(':checked');
-		if (!dryRun && !window.confirm(WKS3M.i18n.confirm_real)) {
+		var opts = collectImportOptions();
+		if (!opts.dry_run && !window.confirm(WKS3M.i18n.confirm_real)) {
 			return;
 		}
 		$btn.prop('disabled', true).text(WKS3M.i18n.importing);
 		var $row = $btn.closest('tr');
 		var $status = $row.find('.wks3m-status');
 
-		$.post(WKS3M.ajax_url, {
+		$.post(WKS3M.ajax_url, $.extend({
 			action: 'wks3m_import_row',
 			nonce: WKS3M.nonce,
-			id: id,
-			dry_run: dryRun ? 1 : 0,
-			auto_replace: autoReplace ? 1 : 0
-		}).done(function (resp) {
+			id: id
+		}, opts)).done(function (resp) {
 			if (!resp || !resp.success) {
 				$btn.prop('disabled', false).text('Migrer');
 				$status.text(WKS3M.i18n.import_failed);
@@ -205,16 +211,13 @@
 			return;
 		}
 		var id = bulkState.ids[bulkState.index];
-		var dryRun = $('#wks3m-dry-run').is(':checked');
-		var autoReplace = $('#wks3m-auto-replace').is(':checked');
+		var opts = collectImportOptions();
 
-		$.post(WKS3M.ajax_url, {
+		$.post(WKS3M.ajax_url, $.extend({
 			action: 'wks3m_import_row',
 			nonce: WKS3M.nonce,
-			id: id,
-			dry_run: dryRun ? 1 : 0,
-			auto_replace: autoReplace ? 1 : 0
-		}).always(function (resp) {
+			id: id
+		}, opts)).always(function (resp) {
 			if (resp && resp.success) {
 				bulkState.success++;
 				var status = resp.data && resp.data.replaced ? 'replaced' : (resp.data && resp.data.dry_run ? 'pending' : 'imported');
@@ -236,8 +239,8 @@
 			alert('Aucune ligne à migrer.');
 			return;
 		}
-		var dryRun = $('#wks3m-dry-run').is(':checked');
-		if (!dryRun && !window.confirm(WKS3M.i18n.confirm_bulk)) {
+		var opts = collectImportOptions();
+		if (!opts.dry_run && !window.confirm(WKS3M.i18n.confirm_bulk)) {
 			return;
 		}
 		bulkState = { ids: ids, index: 0, running: true, errors: 0, success: 0 };
@@ -265,6 +268,95 @@
 		startBulk(ids);
 	}
 
+	/* ---------- Search & Replace ---------- */
+
+	function collectSRParams() {
+		var fields = $('.wks3m-sr-field:checked').map(function () { return this.value; }).get();
+		return {
+			find: $('#wks3m-sr-find').val(),
+			replace: $('#wks3m-sr-replace').val(),
+			fields: fields,
+			update_attachments: $('#wks3m-sr-update-attachments').is(':checked') ? 1 : 0
+		};
+	}
+
+	function renderSRResults(data, isPreview) {
+		var $wrap = $('#wks3m-sr-results').prop('hidden', false);
+		var $counts = $wrap.find('.wks3m-sr-counts');
+		if (isPreview) {
+			$counts.html(
+				'<p><strong>' + data.rows + '</strong> lignes seraient modifiées · ' +
+				'<strong>' + data.alt_rows + '</strong> ALT · ' +
+				'<strong>' + data.title_rows + '</strong> titres · ' +
+				'<strong>' + data.attachments + '</strong> attachments (postmeta ALT).</p>'
+			);
+			var $sample = $('#wks3m-sr-sample');
+			var $tbody = $sample.find('tbody').empty();
+			var replace = $('#wks3m-sr-replace').val();
+			if (data.sample && data.sample.length) {
+				data.sample.forEach(function (s) {
+					var after = (s.after || '').split('⟶REPLACE⟵').join('<mark>' + (replace || '') + '</mark>');
+					$tbody.append(
+						'<tr><td>#' + s.id + '</td><td><code>' + s.field + '</code></td>' +
+						'<td>' + $('<div/>').text(s.before).html() + '</td>' +
+						'<td>' + after + '</td></tr>'
+					);
+				});
+				$sample.prop('hidden', false);
+			} else {
+				$sample.prop('hidden', true);
+			}
+			$('#wks3m-sr-apply-btn').prop('disabled', !(data.rows > 0));
+		} else {
+			$counts.html(
+				'<div class="notice notice-success inline"><p>' +
+				'<strong>' + data.rows_updated + '</strong> lignes mises à jour dans la file d\'attente · ' +
+				'<strong>' + data.attachments_updated + '</strong> attachments WP mis à jour.' +
+				'</p></div>'
+			);
+			$('#wks3m-sr-sample').prop('hidden', true);
+			$('#wks3m-sr-apply-btn').prop('disabled', true);
+		}
+	}
+
+	function handleSRPreview() {
+		var p = collectSRParams();
+		if (!p.find) { alert(WKS3M.i18n.sr_no_find); return; }
+		if (!p.fields.length) { alert(WKS3M.i18n.sr_no_fields); return; }
+		$('#wks3m-sr-spinner').addClass('is-active');
+		$.post(WKS3M.ajax_url, $.extend({
+			action: 'wks3m_sr_preview',
+			nonce: WKS3M.nonce
+		}, p)).done(function (resp) {
+			$('#wks3m-sr-spinner').removeClass('is-active');
+			if (!resp || !resp.success) { alert((resp && resp.data && resp.data.message) || WKS3M.i18n.error); return; }
+			renderSRResults(resp.data, true);
+		}).fail(function () {
+			$('#wks3m-sr-spinner').removeClass('is-active');
+			alert(WKS3M.i18n.error);
+		});
+	}
+
+	function handleSRApply() {
+		var p = collectSRParams();
+		if (!p.find) { alert(WKS3M.i18n.sr_no_find); return; }
+		if (!p.fields.length) { alert(WKS3M.i18n.sr_no_fields); return; }
+		if (!window.confirm(WKS3M.i18n.sr_confirm)) return;
+		$('#wks3m-sr-spinner').addClass('is-active');
+		$('#wks3m-sr-apply-btn').prop('disabled', true);
+		$.post(WKS3M.ajax_url, $.extend({
+			action: 'wks3m_sr_apply',
+			nonce: WKS3M.nonce
+		}, p)).done(function (resp) {
+			$('#wks3m-sr-spinner').removeClass('is-active');
+			if (!resp || !resp.success) { alert((resp && resp.data && resp.data.message) || WKS3M.i18n.error); return; }
+			renderSRResults(resp.data, false);
+		}).fail(function () {
+			$('#wks3m-sr-spinner').removeClass('is-active');
+			alert(WKS3M.i18n.error);
+		});
+	}
+
 	/* ---------- Bind ---------- */
 
 	$(function () {
@@ -277,6 +369,12 @@
 
 		$('#wks3m-select-all').on('change', function () {
 			$('.wks3m-row-check').prop('checked', $(this).is(':checked'));
+		});
+
+		$('#wks3m-sr-preview-btn').on('click', handleSRPreview);
+		$('#wks3m-sr-apply-btn').on('click', handleSRApply);
+		$('#wks3m-sr-find, #wks3m-sr-replace').on('input', function () {
+			$('#wks3m-sr-apply-btn').prop('disabled', true);
 		});
 
 		$('#wks3m-scan-start').on('click', function () {

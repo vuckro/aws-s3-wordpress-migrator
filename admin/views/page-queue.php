@@ -70,9 +70,12 @@ if ( ! function_exists( 'wks3m_queue_status_url' ) ) {
 	</form>
 
 	<div class="wks3m-bulk-bar">
-		<label><input type="checkbox" id="wks3m-dry-run" checked /> <?php esc_html_e( 'Mode dry-run (simuler sans télécharger)', 'waaskit-s3-migrator' ); ?></label>
-		<label style="margin-left:1.5em;"><input type="checkbox" id="wks3m-auto-replace" checked /> <?php esc_html_e( 'Remplacer les URLs dans les articles après import', 'waaskit-s3-migrator' ); ?></label>
-		<button type="button" class="button button-primary" id="wks3m-bulk-all" style="margin-left:1.5em;">
+		<label><input type="checkbox" id="wks3m-dry-run" checked /> <?php esc_html_e( 'Dry-run', 'waaskit-s3-migrator' ); ?></label>
+		<label><input type="checkbox" id="wks3m-auto-replace" checked /> <?php esc_html_e( 'Remplacer URLs après import', 'waaskit-s3-migrator' ); ?></label>
+		<label><input type="checkbox" id="wks3m-use-alt-as-title" /> <?php esc_html_e( 'Utiliser l\'ALT comme titre', 'waaskit-s3-migrator' ); ?></label>
+		<label><input type="checkbox" id="wks3m-fill-empty-alts" /> <?php esc_html_e( 'Remplir ALT vides avec le titre', 'waaskit-s3-migrator' ); ?></label>
+		<span class="wks3m-bulk-bar-sep"></span>
+		<button type="button" class="button button-primary" id="wks3m-bulk-all">
 			<?php
 			printf(
 				/* translators: %d: number of pending rows */

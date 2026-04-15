@@ -11,6 +11,8 @@ use WKS3M\Importer;
 use WKS3M\Plugin;
 use WKS3M\Replacer;
 use WKS3M\Rollback_Manager;
+use WKS3M\Search_Replace;
+use WKS3M\Util;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -23,6 +25,8 @@ class Ajax_Controller {
 		add_action( 'wp_ajax_wks3m_replace_row', [ $this, 'replace_row' ] );
 		add_action( 'wp_ajax_wks3m_rollback_row', [ $this, 'rollback_row' ] );
 		add_action( 'wp_ajax_wks3m_pending_ids', [ $this, 'pending_ids' ] );
+		add_action( 'wp_ajax_wks3m_sr_preview', [ $this, 'sr_preview' ] );
+		add_action( 'wp_ajax_wks3m_sr_apply', [ $this, 'sr_apply' ] );
 	}
 
 	private function guard(): void {
@@ -49,9 +53,6 @@ class Ajax_Controller {
 		wp_send_json_success( $scanner->count_secondary_sources() );
 	}
 
-	/**
-	 * Return up to N pending row IDs for a bulk import driver in the browser.
-	 */
 	public function pending_ids(): void {
 		$this->guard();
 		$limit = isset( $_POST['limit'] ) ? max( 1, min( 5000, (int) $_POST['limit'] ) ) : 2000;
@@ -59,16 +60,16 @@ class Ajax_Controller {
 		wp_send_json_success( [ 'ids' => $ids ] );
 	}
 
-	/**
-	 * Import (or dry-run) a single migration row.
-	 * Optionally runs the URL replacer immediately after a successful import.
-	 */
 	public function import_row(): void {
 		$this->guard();
 
-		$id           = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
-		$dry_run      = isset( $_POST['dry_run'] ) ? (bool) (int) $_POST['dry_run'] : true;
-		$auto_replace = isset( $_POST['auto_replace'] ) ? (bool) (int) $_POST['auto_replace'] : false;
+		$id      = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
+		$dry_run = Util::bool_param( $_POST['dry_run'] ?? null, true );
+		$opts    = [
+			'auto_replace'     => Util::bool_param( $_POST['auto_replace'] ?? null, false ),
+			'use_alt_as_title' => Util::bool_param( $_POST['use_alt_as_title'] ?? null, false ),
+			'fill_empty_alts'  => Util::bool_param( $_POST['fill_empty_alts'] ?? null, false ),
+		];
 
 		$store = Plugin::instance()->mapping_store();
 		$row   = $store->find_by_id( $id );
@@ -81,23 +82,22 @@ class Ajax_Controller {
 		if ( $dry_run ) {
 			wp_send_json_success( [
 				'dry_run' => true,
-				'preview' => $importer->dry_run( $row ),
+				'preview' => $importer->dry_run( $row, $opts ),
 			] );
 		}
 
-		// If already imported, reuse the attachment.
 		if ( ! empty( $row['attachment_id'] ) && in_array( $row['status'], [ 'imported', 'replaced' ], true ) ) {
 			$attachment_id = (int) $row['attachment_id'];
 		} else {
-			$result = $importer->import( $row );
+			$result = $importer->import( $row, $opts );
 			if ( is_wp_error( $result ) ) {
 				$store->mark_failed( $id, $result->get_error_message() );
 				wp_send_json_error( [ 'message' => $result->get_error_message() ], 500 );
 			}
-			$attachment_id = (int) $result['attachment_id'];
-			$store->mark_imported( $id, $attachment_id );
+			$attachment_id        = (int) $result['attachment_id'];
 			$row['attachment_id'] = $attachment_id;
 			$row['status']        = 'imported';
+			$store->mark_imported( $id, $attachment_id );
 		}
 
 		$payload = [
@@ -107,7 +107,7 @@ class Ajax_Controller {
 			'replaced'       => false,
 		];
 
-		if ( $auto_replace ) {
+		if ( $opts['auto_replace'] ) {
 			$rep = ( new Replacer() )->replace_for_row( $row, $attachment_id );
 			if ( empty( $rep['errors'] ) && $rep['posts_updated'] > 0 ) {
 				$store->mark_replaced( $id );
@@ -122,9 +122,6 @@ class Ajax_Controller {
 		wp_send_json_success( $payload );
 	}
 
-	/**
-	 * Replace URLs in post_content for an already-imported row.
-	 */
 	public function replace_row(): void {
 		$this->guard();
 		$id = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
@@ -144,18 +141,50 @@ class Ajax_Controller {
 		wp_send_json_success( $res );
 	}
 
-	/**
-	 * Roll back a migration (restore post_content from backup).
-	 */
 	public function rollback_row(): void {
 		$this->guard();
 		$id                = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
-		$delete_attachment = isset( $_POST['delete_attachment'] ) ? (bool) (int) $_POST['delete_attachment'] : false;
+		$delete_attachment = Util::bool_param( $_POST['delete_attachment'] ?? null, false );
 
 		$res = ( new Rollback_Manager() )->rollback( $id, $delete_attachment );
 		if ( ! empty( $res['errors'] ) && 0 === (int) $res['posts_restored'] ) {
 			wp_send_json_error( [ 'message' => implode( ' | ', $res['errors'] ) ], 500 );
 		}
 		wp_send_json_success( $res );
+	}
+
+	public function sr_preview(): void {
+		$this->guard();
+		[ $find, $replace, $fields, $update_attachments ] = $this->read_sr_params();
+		if ( '' === $find ) {
+			wp_send_json_error( [ 'message' => 'empty_find' ], 400 );
+		}
+		wp_send_json_success( ( new Search_Replace() )->preview( $find, $fields, $update_attachments ) + [
+			'replace' => $replace,
+		] );
+	}
+
+	public function sr_apply(): void {
+		$this->guard();
+		[ $find, $replace, $fields, $update_attachments ] = $this->read_sr_params();
+		if ( '' === $find ) {
+			wp_send_json_error( [ 'message' => 'empty_find' ], 400 );
+		}
+		wp_send_json_success(
+			( new Search_Replace() )->apply( $find, $replace, $fields, $update_attachments )
+		);
+	}
+
+	/**
+	 * @return array{0:string,1:string,2:string[],3:bool}
+	 */
+	private function read_sr_params(): array {
+		$find    = isset( $_POST['find'] ) ? (string) wp_unslash( $_POST['find'] ) : '';
+		$replace = isset( $_POST['replace'] ) ? (string) wp_unslash( $_POST['replace'] ) : '';
+		$fields  = isset( $_POST['fields'] ) && is_array( $_POST['fields'] )
+			? array_map( 'sanitize_key', (array) wp_unslash( $_POST['fields'] ) )
+			: [];
+		$update_attachments = Util::bool_param( $_POST['update_attachments'] ?? null, true );
+		return [ $find, $replace, $fields, $update_attachments ];
 	}
 }

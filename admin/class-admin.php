@@ -68,6 +68,9 @@ class Admin {
 					'replaced'      => __( 'Remplacée', 'waaskit-s3-migrator' ),
 					'rolled_back'   => __( 'Rollback effectué', 'waaskit-s3-migrator' ),
 					'bulk_progress' => __( 'Migration en cours…', 'waaskit-s3-migrator' ),
+					'sr_no_find'    => __( 'Saisis une chaîne à rechercher.', 'waaskit-s3-migrator' ),
+					'sr_no_fields'  => __( 'Coche au moins un champ cible (ALT ou Titre).', 'waaskit-s3-migrator' ),
+					'sr_confirm'    => __( 'Appliquer le remplacement ? Cette opération modifie la file d\'attente et (si coché) les attachments déjà importés.', 'waaskit-s3-migrator' ),
 				],
 			]
 		);
@@ -114,9 +117,9 @@ class Admin {
 					class="nav-tab <?php echo 'history' === $tab ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e( 'Historique & Rollback', 'waaskit-s3-migrator' ); ?>
 				</a>
-				<a href="#" class="nav-tab disabled" aria-disabled="true">
+				<a href="<?php echo esc_url( admin_url( 'tools.php?page=' . self::MENU_SLUG . '&tab=settings' ) ); ?>"
+					class="nav-tab <?php echo 'settings' === $tab ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e( 'Réglages', 'waaskit-s3-migrator' ); ?>
-					<span class="wks3m-pill"><?php esc_html_e( 'Phase 5', 'waaskit-s3-migrator' ); ?></span>
 				</a>
 			</nav>
 			<?php
@@ -126,6 +129,9 @@ class Admin {
 					break;
 				case 'history':
 					require WKS3M_PLUGIN_DIR . 'admin/views/page-history.php';
+					break;
+				case 'settings':
+					require WKS3M_PLUGIN_DIR . 'admin/views/page-settings.php';
 					break;
 				case 'scan':
 				default:
