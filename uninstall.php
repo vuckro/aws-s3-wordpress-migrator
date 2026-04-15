@@ -28,6 +28,9 @@ foreach (
 		'wks3m_source_hosts',
 		'wks3m_auto_detect_external',
 		'wks3m_strip_strapi_prefixes',
+		'wks3m_concurrency',
+		'wks3m_defer_thumbnails',
+		'wks3m_download_retries',
 		// Legacy.
 		'cxs3m_db_version',
 		'cxs3m_dry_run',

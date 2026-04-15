@@ -23,7 +23,7 @@ class Downloader {
 
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 
-		$tmp = download_url( $url, 60 );
+		$tmp = $this->download_with_retry( $url );
 		if ( is_wp_error( $tmp ) ) {
 			return $tmp;
 		}
@@ -58,6 +58,45 @@ class Downloader {
 			'mime'     => (string) $filetype['type'],
 			'filename' => $unique,
 		];
+	}
+
+	/**
+	 * Attempt download_url() up to N times with exponential backoff.
+	 * Retries only on transient errors (timeouts, DNS, 5xx). Client errors (4xx)
+	 * bail out immediately since retrying won't help.
+	 *
+	 * @return string|\WP_Error Temp file path on success, WP_Error on final failure.
+	 */
+	private function download_with_retry( string $url ) {
+		$attempts = Settings::download_retries();
+		$last     = null;
+
+		for ( $i = 1; $i <= $attempts; $i++ ) {
+			$tmp = download_url( $url, 60 );
+			if ( ! is_wp_error( $tmp ) ) {
+				return $tmp;
+			}
+			$last = $tmp;
+
+			// Do not retry on client errors — they won't recover.
+			$code = (string) $last->get_error_code();
+			$msg  = (string) $last->get_error_message();
+			if ( preg_match( '/\b(4\d\d)\b/', $msg ) && ! preg_match( '/\b(408|429)\b/', $msg ) ) {
+				break;
+			}
+			if ( in_array( $code, [ 'http_no_url', 'http_request_failed_permanently' ], true ) ) {
+				break;
+			}
+
+			if ( $i < $attempts ) {
+				// Exponential backoff: 1s, 2s, 4s… capped at 8s.
+				$sleep = min( 8, (int) pow( 2, $i - 1 ) );
+				Logger::info( 'Download retry', [ 'url' => $url, 'attempt' => $i, 'sleep' => $sleep, 'err' => $msg ] );
+				sleep( $sleep );
+			}
+		}
+
+		return $last ?: new \WP_Error( 'wks3m_download_failed', 'Download failed after retries' );
 	}
 
 	/** Strip Strapi size prefix when configured, then sanitize. */

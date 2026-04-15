@@ -164,23 +164,39 @@
 			.fail(function () { $btn.prop('disabled', false); alert(T.error); });
 	}
 
-	/* ---------- Bulk import (sequential, stoppable) ---------- */
+	/* ---------- Bulk import (parallel worker pool, stoppable) ----------
+	 *
+	 * N workers consume IDs from a shared queue. Each worker fires an AJAX
+	 * request, waits for completion, then takes the next ID. When all workers
+	 * have drained the queue, the bulk operation ends.
+	 *
+	 * Compared to the previous sequential loop this gives a 3–5× speedup on
+	 * network-bound migrations (the bottleneck is the remote download), while
+	 * keeping the server load bounded by `concurrency` (1..6).
+	 */
 
 	var bulk = null;
 
+	function concurrency() {
+		var n = parseInt(WKS3M.concurrency, 10);
+		if (!n || n < 1) n = 3;
+		return Math.min(6, n);
+	}
+
 	function drawBulk(prefix) {
-		var pct = bulk.total > 0 ? Math.round((bulk.index / bulk.total) * 100) : 0;
+		var done = bulk.ok + bulk.ko;
+		var pct = bulk.total > 0 ? Math.round((done / bulk.total) * 100) : 0;
 		var label = (prefix ? prefix + ' — ' : '') + pct + '% — ' +
-			bulk.index + ' / ' + bulk.total + ' (✔ ' + bulk.ok + ' · ✖ ' + bulk.ko + ')';
+			done + ' / ' + bulk.total + ' (✔ ' + bulk.ok + ' · ✖ ' + bulk.ko + ')';
 		renderProgress($('#wks3m-bulk-progress'), pct, label);
 	}
 
-	function bulkNext() {
+	function bulkWorker() {
 		if (!bulk) return;
-		if (!bulk.running)            return endBulk(true);
-		if (bulk.index >= bulk.total) return endBulk(false);
+		if (!bulk.running) { bulkWorkerDone(); return; }
+		if (bulk.cursor >= bulk.total) { bulkWorkerDone(); return; }
 
-		var id = bulk.ids[bulk.index];
+		var id = bulk.ids[bulk.cursor++];
 		post('wks3m_import_row', $.extend({ id: id }, importOptions())).always(function (resp) {
 			var $row = $('tr[data-id="' + id + '"]');
 			if (resp && resp.success) {
@@ -192,10 +208,16 @@
 			} else {
 				bulk.ko++;
 			}
-			bulk.index++;
 			drawBulk();
-			setTimeout(bulkNext, 50);
+			// Small stagger per worker to smooth thundering herd on very fast sources.
+			setTimeout(bulkWorker, 20);
 		});
+	}
+
+	function bulkWorkerDone() {
+		if (!bulk) return;
+		bulk.active--;
+		if (bulk.active <= 0) endBulk(!bulk.running);
 	}
 
 	function endBulk(stopped) {
@@ -217,18 +239,91 @@
 		if (!ids || !ids.length) { alert(T.nothing_to_do); return; }
 		if (!$('#wks3m-dry-run').is(':checked') && !window.confirm(T.confirm_bulk)) return;
 
-		bulk = { ids: ids, index: 0, total: ids.length, ok: 0, ko: 0, running: true };
+		var n = Math.min(concurrency(), ids.length);
+		bulk = {
+			ids: ids,
+			cursor: 0,
+			total: ids.length,
+			ok: 0, ko: 0,
+			running: true,
+			active: n
+		};
 		$('#wks3m-bulk-all, #wks3m-bulk-selected').prop('disabled', true);
 		$('#wks3m-bulk-stop').prop('hidden', false);
 		$('#wks3m-bulk-spinner').addClass('is-active');
 		drawBulk(T.bulk_progress);
-		bulkNext();
+		for (var i = 0; i < n; i++) bulkWorker();
 	}
 
 	function handleStop() {
 		if (!bulk) return;
 		bulk.running = false;
 		$('#wks3m-bulk-stop').prop('disabled', true).text(T.stopping);
+	}
+
+	/* ---------- Finalize deferred thumbnails (parallel, stoppable) ---------- */
+
+	var finalize = null;
+
+	function drawFinalize(prefix) {
+		var done = finalize.ok + finalize.ko;
+		var pct = finalize.total > 0 ? Math.round((done / finalize.total) * 100) : 0;
+		var label = (prefix ? prefix + ' — ' : '') + pct + '% — ' +
+			done + ' / ' + finalize.total + ' (✔ ' + finalize.ok + ' · ✖ ' + finalize.ko + ')';
+		renderProgress($('#wks3m-finalize-progress'), pct, label);
+	}
+
+	function finalizeWorker() {
+		if (!finalize) return;
+		if (!finalize.running) { finalizeWorkerDone(); return; }
+		if (finalize.cursor >= finalize.total) { finalizeWorkerDone(); return; }
+
+		var id = finalize.ids[finalize.cursor++];
+		post('wks3m_finalize_thumb', { id: id }).always(function (resp) {
+			if (resp && resp.success) finalize.ok++; else finalize.ko++;
+			drawFinalize();
+			setTimeout(finalizeWorker, 20);
+		});
+	}
+
+	function finalizeWorkerDone() {
+		if (!finalize) return;
+		finalize.active--;
+		if (finalize.active <= 0) endFinalize(!finalize.running);
+	}
+
+	function endFinalize(stopped) {
+		var summary = finalize;
+		$('#wks3m-finalize-spinner').removeClass('is-active');
+		$('#wks3m-finalize-stop').prop('hidden', true).prop('disabled', false).text(T.stop);
+		$('#wks3m-finalize-thumbs').prop('disabled', false);
+		if (!summary) return;
+		drawFinalize(stopped ? T.stopped : T.done);
+		finalize = null;
+	}
+
+	function handleFinalize() {
+		if (!window.confirm(T.confirm_finalize)) return;
+		$('#wks3m-finalize-thumbs').prop('disabled', true);
+		post('wks3m_pending_thumb_ids').done(function (resp) {
+			var ids = (resp && resp.success && resp.data.ids) || [];
+			if (!ids.length) { alert(T.finalize_none); $('#wks3m-finalize-thumbs').prop('disabled', false); return; }
+			var n = Math.min(concurrency(), ids.length);
+			finalize = { ids: ids, cursor: 0, total: ids.length, ok: 0, ko: 0, running: true, active: n };
+			$('#wks3m-finalize-stop').prop('hidden', false);
+			$('#wks3m-finalize-spinner').addClass('is-active');
+			drawFinalize(T.finalize_progress);
+			for (var i = 0; i < n; i++) finalizeWorker();
+		}).fail(function () {
+			alert(T.error);
+			$('#wks3m-finalize-thumbs').prop('disabled', false);
+		});
+	}
+
+	function handleFinalizeStop() {
+		if (!finalize) return;
+		finalize.running = false;
+		$('#wks3m-finalize-stop').prop('disabled', true).text(T.stopping);
 	}
 
 	function handleBulkAll() {
@@ -342,6 +437,10 @@
 		$('#wks3m-select-all').on('change', function () {
 			$('.wks3m-row-check').prop('checked', $(this).is(':checked'));
 		});
+
+		// Finalize deferred thumbnails.
+		$('#wks3m-finalize-thumbs').on('click', handleFinalize);
+		$('#wks3m-finalize-stop').on('click',   handleFinalizeStop);
 
 		// Transform.
 		if ($('#wks3m-tr-form').length) {

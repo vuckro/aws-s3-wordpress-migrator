@@ -12,7 +12,7 @@ defined( 'ABSPATH' ) || exit;
 class Activator {
 
 	public const TABLE_VERSION_OPTION = 'wks3m_db_version';
-	public const CURRENT_DB_VERSION   = '1.2.0';
+	public const CURRENT_DB_VERSION   = '1.3.0';
 
 	public static function table_name(): string {
 		global $wpdb;
@@ -21,12 +21,23 @@ class Activator {
 
 	public static function activate(): void {
 		self::install_table();
-		// Default options.
+		self::install_default_options();
+	}
+
+	/**
+	 * Seed default option values. Safe to call repeatedly — add_option() is a no-op
+	 * when the option already exists. Called from activate() and from the
+	 * upgrade safety-net in Plugin::boot().
+	 */
+	public static function install_default_options(): void {
 		add_option( 'wks3m_dry_run', 1 );
 		add_option( 'wks3m_batch_size', 10 );
 		add_option( 'wks3m_source_hosts', [] );
 		add_option( 'wks3m_auto_detect_external', 1 );
 		add_option( 'wks3m_strip_strapi_prefixes', 1 );
+		add_option( 'wks3m_concurrency', 3 );
+		add_option( 'wks3m_defer_thumbnails', 0 );
+		add_option( 'wks3m_download_retries', 3 );
 	}
 
 	public static function deactivate(): void {

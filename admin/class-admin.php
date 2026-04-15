@@ -25,6 +25,7 @@ class Admin {
 		add_action( 'admin_menu', [ $this, 'add_menu' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 		add_action( 'admin_post_wks3m_save_sources', [ $this, 'save_sources' ] );
+		add_action( 'admin_post_wks3m_save_performance', [ $this, 'save_performance' ] );
 	}
 
 	public function add_menu(): void {
@@ -49,6 +50,8 @@ class Admin {
 			'nonce'                => wp_create_nonce( 'wks3m_action' ),
 			// URL template — JS replaces %d with the attachment ID.
 			'edit_post_url_tmpl'   => admin_url( 'post.php?post=%d&action=edit' ),
+			'concurrency'          => \WKS3M\Settings::concurrency(),
+			'defer_thumbnails'     => \WKS3M\Settings::defer_thumbnails(),
 			'i18n'                 => self::i18n_strings(),
 		] );
 	}
@@ -83,6 +86,10 @@ class Admin {
 			'tr_confirm'        => __( 'Appliquer la règle ? La modification est définitive (pas de rollback pour les transformations).', 'waaskit-s3-migrator' ),
 			// Dry-run alert template (%s placeholders replaced JS-side).
 			'dry_run_tpl'       => __( "Dry-run\n\nSource: %source%\nFichier: %file%\nTitre: %title%\nAlt: %alt%", 'waaskit-s3-migrator' ),
+			// Thumbnail finalization.
+			'finalize_progress' => __( 'Génération des thumbnails…', 'waaskit-s3-migrator' ),
+			'finalize_none'     => __( 'Aucun thumbnail en attente.', 'waaskit-s3-migrator' ),
+			'confirm_finalize'  => __( 'Générer les thumbnails manquants pour tous les attachments importés en mode différé ?', 'waaskit-s3-migrator' ),
 		];
 	}
 
@@ -103,6 +110,28 @@ class Admin {
 		update_option( 'wks3m_strip_strapi_prefixes', ! empty( $_POST['strip_prefixes'] ) ? 1 : 0 );
 
 		wp_safe_redirect( View_Helper::tab_url( 'scan', [ 'sources_saved' => 1 ] ) );
+		exit;
+	}
+
+	/**
+	 * Persist the performance settings (concurrency, deferred thumbnails,
+	 * download retries) submitted from the Settings tab.
+	 */
+	public function save_performance(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'forbidden', 403 );
+		}
+		check_admin_referer( 'wks3m_save_performance' );
+
+		$concurrency = isset( $_POST['concurrency'] ) ? (int) $_POST['concurrency'] : 3;
+		update_option( 'wks3m_concurrency', max( 1, min( 6, $concurrency ) ) );
+
+		$retries = isset( $_POST['download_retries'] ) ? (int) $_POST['download_retries'] : 3;
+		update_option( 'wks3m_download_retries', max( 1, min( 5, $retries ) ) );
+
+		update_option( 'wks3m_defer_thumbnails', ! empty( $_POST['defer_thumbnails'] ) ? 1 : 0 );
+
+		wp_safe_redirect( View_Helper::tab_url( 'settings', [ 'perf_saved' => 1 ] ) );
 		exit;
 	}
 

@@ -3,7 +3,7 @@
  * Plugin Name:       AWS S3 WordPress Migrator
  * Plugin URI:        https://github.com/vuckro/aws-s3-wordpress-migrator
  * Description:       Détecte les images hébergées sur un domaine externe (S3, CDN, CMS headless…), les importe dans la Media Library WordPress avec leurs métadonnées SEO, remplace les URLs dans le contenu, et garde un historique réversible.
- * Version:           1.0.0-beta.2
+ * Version:           1.1.0
  * Requires at least: 6.0
  * Requires PHP:      8.1
  * Author:            WaasKit
@@ -18,7 +18,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WKS3M_VERSION', '1.0.0-beta.2' );
+define( 'WKS3M_VERSION', '1.1.0' );
 define( 'WKS3M_PLUGIN_FILE', __FILE__ );
 define( 'WKS3M_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WKS3M_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -41,6 +41,11 @@ require_once WKS3M_PLUGIN_DIR . 'includes/class-plugin.php';
 require_once WKS3M_PLUGIN_DIR . 'admin/class-view-helper.php';
 require_once WKS3M_PLUGIN_DIR . 'admin/class-admin.php';
 require_once WKS3M_PLUGIN_DIR . 'admin/class-ajax-controller.php';
+
+// WP-CLI commands — only loaded under CLI to keep web requests lean.
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+	require_once WKS3M_PLUGIN_DIR . 'includes/class-cli.php';
+}
 
 register_activation_hook( __FILE__, [ '\WKS3M\Activator', 'activate' ] );
 register_deactivation_hook( __FILE__, [ '\WKS3M\Activator', 'deactivate' ] );

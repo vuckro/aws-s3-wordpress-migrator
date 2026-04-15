@@ -72,6 +72,7 @@ waaskit-s3-migrator/
 │   ├── class-replacer.php         # str_replace + Gutenberg-aware rewrite
 │   ├── class-rollback-manager.php # restore post_content from backup
 │   ├── class-transform.php        # moteur de règles ALT/Titre
+│   ├── class-cli.php              # commandes WP-CLI (migrate, finalize-thumbnails)
 │   ├── class-logger.php
 │   └── class-util.php             # helpers partagés
 ├── admin/
@@ -125,7 +126,42 @@ Table unique `{prefix}wks3m_migration_log` :
 | `wks3m_strip_strapi_prefixes` | `1` | Grouper les variantes Strapi |
 | `wks3m_dry_run` | `1` | Placeholder — le toggle est par-session côté JS |
 | `wks3m_batch_size` | `10` | Placeholder |
-| `wks3m_db_version` | `1.2.0` | Pour migrations de schéma |
+| `wks3m_concurrency` | `3` | Nb de migrations parallèles côté client (1-6) |
+| `wks3m_defer_thumbnails` | `0` | Skip `wp_generate_attachment_metadata()` à l'import |
+| `wks3m_download_retries` | `3` | Tentatives de download avec backoff exponentiel |
+| `wks3m_db_version` | `1.3.0` | Pour migrations de schéma |
+
+## Performance — gros volumes (>1000 images)
+
+Plusieurs leviers activés par défaut depuis la v1.1 :
+
+1. **Concurrence** — `Réglages → Performance` ajuste le nombre de migrations simultanées (défaut 3, max 6). Le pool de workers côté client pipeline les downloads : pendant qu'une image descend, 2 autres sont en cours → gain typique 3-5× sur sources CDN rapides.
+2. **Thumbnails différés** — coche "Thumbnails différés" pour sauter la génération des tailles WP pendant l'import. Un attachment est créé immédiatement après le download, sans regen ImageMagick (qui prend 1-5 s par image haute résolution). Une fois la migration finie, le bouton **« Générer les thumbnails manquants »** ou `wp media regenerate --only-missing` finalise le tout. Aucune perte de qualité — juste un déport dans le temps.
+3. **Retry exponentiel** — 3 tentatives par défaut (1 s / 2 s / 4 s) pour les timeouts et 5xx. Les 4xx (hors 408/429) ne sont pas réessayés (inutile).
+
+### WP-CLI — migration headless
+
+Pour les très gros volumes (>2000 images), préférer WP-CLI : pas de timeout navigateur, pas de session admin verrouillée, le site reste réactif pendant que la commande tourne.
+
+```bash
+# Migrer tout ce qui est en attente + remplacer les URLs + thumbnails différés
+wp wks3m migrate --replace --defer-thumbnails
+
+# Relancer uniquement les échecs
+wp wks3m migrate --status=failed --limit=500
+
+# Simuler sans rien écrire
+wp wks3m migrate --dry-run
+
+# Générer les thumbnails différés a posteriori
+wp wks3m finalize-thumbnails
+```
+
+En combinaison avec `tmux` ou `nohup`, la migration peut tourner pendant des heures sans garder de terminal ouvert :
+
+```bash
+nohup wp wks3m migrate --replace --defer-thumbnails > /tmp/wks3m.log 2>&1 &
+```
 
 ## Désinstallation
 
