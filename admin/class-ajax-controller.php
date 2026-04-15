@@ -11,6 +11,7 @@ use WKS3M\Importer;
 use WKS3M\Plugin;
 use WKS3M\Replacer;
 use WKS3M\Rollback_Manager;
+use WKS3M\Settings;
 use WKS3M\Transform;
 use WKS3M\Util;
 
@@ -28,6 +29,8 @@ class Ajax_Controller {
 			'wks3m_rollback_row'      => 'rollback_row',
 			'wks3m_transform_preview' => 'transform_preview',
 			'wks3m_transform_apply'   => 'transform_apply',
+			'wks3m_finalize_thumb'    => 'finalize_thumb',
+			'wks3m_pending_thumb_ids' => 'pending_thumb_ids',
 		];
 		foreach ( $handlers as $action => $method ) {
 			add_action( "wp_ajax_{$action}", [ $this, $method ] );
@@ -85,7 +88,11 @@ public function import_row(): void {
 
 		$attachment_id = $row->attachment_id();
 		if ( ! $row->is_imported() ) {
-			$result = $importer->import( $row );
+			// Read per-request override, fallback to global setting.
+			$defer  = isset( $_POST['defer_thumbnails'] )
+				? Util::bool_param( $_POST['defer_thumbnails'], false )
+				: Settings::defer_thumbnails();
+			$result = $importer->import( $row, $defer );
 			if ( is_wp_error( $result ) ) {
 				$store->mark_failed( $id, $result->get_error_message() );
 				wp_send_json_error( [ 'message' => $result->get_error_message() ], 500 );
@@ -138,6 +145,25 @@ public function import_row(): void {
 			wp_send_json_error( [ 'message' => implode( ' | ', $res['errors'] ) ], 500 );
 		}
 		wp_send_json_success( $res );
+	}
+
+	public function finalize_thumb(): void {
+		$this->guard();
+		$attach_id = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
+		if ( $attach_id <= 0 ) {
+			wp_send_json_error( [ 'message' => 'invalid_id' ], 400 );
+		}
+		$res = ( new Importer() )->finalize_thumbnails( $attach_id );
+		if ( is_wp_error( $res ) ) {
+			wp_send_json_error( [ 'message' => $res->get_error_message() ], 500 );
+		}
+		wp_send_json_success( [ 'attachment_id' => $attach_id ] );
+	}
+
+	public function pending_thumb_ids(): void {
+		$this->guard();
+		$limit = isset( $_POST['limit'] ) ? max( 1, min( 20000, (int) $_POST['limit'] ) ) : 5000;
+		wp_send_json_success( [ 'ids' => Importer::pending_thumbnails_ids( $limit ) ] );
 	}
 
 	public function transform_preview(): void {

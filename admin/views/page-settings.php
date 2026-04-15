@@ -6,7 +6,93 @@
  */
 
 defined( 'ABSPATH' ) || exit;
+
+$perf_saved = ! empty( $_GET['perf_saved'] );
 ?>
+<?php if ( $perf_saved ) : ?>
+	<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Réglages de performance enregistrés.', 'waaskit-s3-migrator' ); ?></p></div>
+<?php endif; ?>
+
+<div class="wks3m-panel">
+	<h2><?php esc_html_e( 'Performance & stabilité', 'waaskit-s3-migrator' ); ?></h2>
+	<p class="description">
+		<?php esc_html_e( 'Ajuste la vitesse de migration et la résilience aux erreurs réseau. Augmenter la concurrence accélère la migration mais sollicite davantage le serveur source et l\'hôte WordPress.', 'waaskit-s3-migrator' ); ?>
+	</p>
+
+	<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+		<input type="hidden" name="action" value="wks3m_save_performance" />
+		<?php wp_nonce_field( 'wks3m_save_performance' ); ?>
+
+		<table class="form-table" role="presentation">
+			<tbody>
+				<tr>
+					<th scope="row"><label for="wks3m-concurrency"><?php esc_html_e( 'Migrations parallèles', 'waaskit-s3-migrator' ); ?></label></th>
+					<td>
+						<input type="number" id="wks3m-concurrency" name="concurrency" min="1" max="6" value="<?php echo esc_attr( \WKS3M\Settings::concurrency() ); ?>" class="small-text" />
+						<p class="description">
+							<?php esc_html_e( 'Nombre d\'images téléchargées en même temps lors des migrations en masse. Défaut : 3. Max : 6. Augmente en cas de source S3/CDN rapide, réduis si le site est lent ou si la source renvoie des 429/503.', 'waaskit-s3-migrator' ); ?>
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="wks3m-defer-thumbs"><?php esc_html_e( 'Thumbnails différés', 'waaskit-s3-migrator' ); ?></label></th>
+					<td>
+						<label>
+							<input type="checkbox" id="wks3m-defer-thumbs" name="defer_thumbnails" value="1" <?php checked( \WKS3M\Settings::defer_thumbnails() ); ?> />
+							<?php esc_html_e( 'Ne pas générer les tailles intermédiaires pendant la migration.', 'waaskit-s3-migrator' ); ?>
+						</label>
+						<p class="description">
+							<?php esc_html_e( 'Accélère fortement l\'import (30–50 % par grosse image). Les thumbnails sont générés plus tard via le bouton ci-dessous ou la commande `wp media regenerate --only-missing`. Aucune perte de qualité.', 'waaskit-s3-migrator' ); ?>
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="wks3m-retries"><?php esc_html_e( 'Tentatives de téléchargement', 'waaskit-s3-migrator' ); ?></label></th>
+					<td>
+						<input type="number" id="wks3m-retries" name="download_retries" min="1" max="5" value="<?php echo esc_attr( \WKS3M\Settings::download_retries() ); ?>" class="small-text" />
+						<p class="description">
+							<?php esc_html_e( 'Nombre maximum de tentatives par image en cas de timeout ou d\'erreur 5xx (backoff exponentiel 1s / 2s / 4s…). Défaut : 3.', 'waaskit-s3-migrator' ); ?>
+						</p>
+					</td>
+				</tr>
+			</tbody>
+		</table>
+
+		<?php submit_button( __( 'Enregistrer', 'waaskit-s3-migrator' ) ); ?>
+	</form>
+
+	<hr />
+
+	<h3><?php esc_html_e( 'Finaliser les thumbnails différés', 'waaskit-s3-migrator' ); ?></h3>
+	<?php
+	$pending = \WKS3M\Importer::pending_thumbnails_ids( 20000 );
+	$pending_count = count( $pending );
+	?>
+	<p>
+		<?php
+		printf(
+			/* translators: %d: number of attachments awaiting thumbnail generation */
+			esc_html__( '%d attachment(s) importé(s) sans thumbnails.', 'waaskit-s3-migrator' ),
+			(int) $pending_count
+		);
+		?>
+	</p>
+	<p>
+		<button type="button" class="button button-secondary" id="wks3m-finalize-thumbs" <?php disabled( 0, $pending_count ); ?>>
+			<?php esc_html_e( 'Générer les thumbnails manquants', 'waaskit-s3-migrator' ); ?>
+		</button>
+		<button type="button" class="button" id="wks3m-finalize-stop" hidden><?php esc_html_e( 'Stop', 'waaskit-s3-migrator' ); ?></button>
+		<span class="spinner" id="wks3m-finalize-spinner" style="float:none;"></span>
+	</p>
+	<div id="wks3m-finalize-progress" class="wks3m-progress" hidden>
+		<div class="wks3m-progress-bar"><span></span></div>
+		<p class="wks3m-progress-label"></p>
+	</div>
+	<p class="description">
+		<?php esc_html_e( 'Alternative : lance `wp media regenerate --only-missing` via WP-CLI si disponible.', 'waaskit-s3-migrator' ); ?>
+	</p>
+</div>
+
 <div class="wks3m-panel">
 	<h2><?php esc_html_e( 'Transformer les ALT / Titres', 'waaskit-s3-migrator' ); ?></h2>
 	<p class="description">

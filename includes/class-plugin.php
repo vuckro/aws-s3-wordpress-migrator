@@ -25,9 +25,10 @@ class Plugin {
 		}
 		$this->booted = true;
 
-		// Safety-net: upgrade the schema if needed.
+		// Safety-net: upgrade the schema + seed new option defaults on version bump.
 		if ( is_admin() && get_option( Activator::TABLE_VERSION_OPTION ) !== Activator::CURRENT_DB_VERSION ) {
 			Activator::install_table();
+			Activator::install_default_options();
 		}
 
 		if ( is_admin() ) {

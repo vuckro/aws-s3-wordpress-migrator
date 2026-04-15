@@ -26,6 +26,30 @@ class Settings {
 	}
 
 	/**
+	 * Number of parallel HTTP workers for bulk migration (client-side).
+	 * Clamped to [1,6] to avoid hammering source CDNs and saturating the host.
+	 */
+	public static function concurrency(): int {
+		return max( 1, min( 6, (int) get_option( 'wks3m_concurrency', 3 ) ) );
+	}
+
+	/**
+	 * When true, wp_generate_attachment_metadata() is skipped during import.
+	 * Thumbnails are regenerated later via the "Finaliser les thumbnails" action
+	 * (or by running `wp media regenerate --only-missing`).
+	 */
+	public static function defer_thumbnails(): bool {
+		return (bool) get_option( 'wks3m_defer_thumbnails', 0 );
+	}
+
+	/**
+	 * Max download attempts per image (1 = no retry). Backoff grows exponentially.
+	 */
+	public static function download_retries(): int {
+		return max( 1, min( 5, (int) get_option( 'wks3m_download_retries', 3 ) ) );
+	}
+
+	/**
 	 * List of hostnames the user wants to scan for.
 	 * When empty, the scanner uses auto-detection (any external host).
 	 *

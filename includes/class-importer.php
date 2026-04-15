@@ -16,8 +16,10 @@ defined( 'ABSPATH' ) || exit;
 
 class Importer {
 
-	public const META_SOURCE_URL  = '_wks3m_source_url';
-	public const META_SOURCE_HOST = '_wks3m_source_host';
+	public const META_SOURCE_URL     = '_wks3m_source_url';
+	public const META_SOURCE_HOST    = '_wks3m_source_host';
+	/** Flag stored on attachments whose thumbnails were deferred at import. */
+	public const META_THUMBS_PENDING = '_wks3m_thumbs_pending';
 
 	private Downloader $downloader;
 
@@ -41,9 +43,14 @@ class Importer {
 	/**
 	 * Perform a real import.
 	 *
+	 * @param Migration_Row $row
+	 * @param bool|null     $defer_thumbnails When true, skips wp_generate_attachment_metadata()
+	 *                                        and marks the attachment with META_THUMBS_PENDING.
+	 *                                        Null = read from Settings.
+	 *
 	 * @return array{attachment_id:int,attachment_url:string}|\WP_Error
 	 */
-	public function import( Migration_Row $row ) {
+	public function import( Migration_Row $row, ?bool $defer_thumbnails = null ) {
 		$source = $row->best_variant();
 		if ( '' === $source ) {
 			return new \WP_Error( 'wks3m_no_url', 'No source URL stored for this row.' );
@@ -81,7 +88,24 @@ class Importer {
 			return $attach_id;
 		}
 
-		wp_update_attachment_metadata( $attach_id, wp_generate_attachment_metadata( $attach_id, $file['path'] ) );
+		$defer = $defer_thumbnails ?? Settings::defer_thumbnails();
+		if ( $defer ) {
+			// Store a minimal metadata record (file + width/height only, no sizes).
+			// WordPress tolerates the empty "sizes" array and will display the
+			// full-size image wherever thumbnails would normally be used.
+			$uploads  = wp_upload_dir();
+			$relpath  = ltrim( str_replace( trailingslashit( $uploads['basedir'] ), '', $file['path'] ), '/' );
+			$dims     = @getimagesize( $file['path'] );
+			wp_update_attachment_metadata( $attach_id, [
+				'file'   => $relpath,
+				'width'  => (int) ( $dims[0] ?? 0 ),
+				'height' => (int) ( $dims[1] ?? 0 ),
+				'sizes'  => [],
+			] );
+			update_post_meta( $attach_id, self::META_THUMBS_PENDING, 1 );
+		} else {
+			wp_update_attachment_metadata( $attach_id, wp_generate_attachment_metadata( $attach_id, $file['path'] ) );
+		}
 
 		$alt = $row->alt_text();
 		if ( '' !== $alt ) {
@@ -98,5 +122,44 @@ class Importer {
 			'attachment_id'  => (int) $attach_id,
 			'attachment_url' => (string) wp_get_attachment_url( $attach_id ),
 		];
+	}
+
+	/**
+	 * Generate the missing thumbnails for one attachment previously imported
+	 * with "defer thumbnails" enabled. Idempotent — clears the pending flag on
+	 * success.
+	 *
+	 * @return true|\WP_Error
+	 */
+	public function finalize_thumbnails( int $attach_id ) {
+		$path = get_attached_file( $attach_id );
+		if ( ! $path || ! file_exists( $path ) ) {
+			return new \WP_Error( 'wks3m_missing_file', sprintf( 'Attachment %d: file not found on disk.', $attach_id ) );
+		}
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+		$meta = wp_generate_attachment_metadata( $attach_id, $path );
+		if ( empty( $meta ) ) {
+			return new \WP_Error( 'wks3m_meta_failed', sprintf( 'Could not generate metadata for attachment %d.', $attach_id ) );
+		}
+		wp_update_attachment_metadata( $attach_id, $meta );
+		delete_post_meta( $attach_id, self::META_THUMBS_PENDING );
+		return true;
+	}
+
+	/**
+	 * Return the attachment IDs that still have deferred thumbnails, most recent
+	 * first. Used by the "Finaliser les thumbnails" bulk action.
+	 *
+	 * @return int[]
+	 */
+	public static function pending_thumbnails_ids( int $limit = 5000 ): array {
+		global $wpdb;
+		$limit = max( 1, min( 20000, $limit ) );
+		$rows  = $wpdb->get_col( $wpdb->prepare(
+			"SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s ORDER BY post_id DESC LIMIT %d",
+			self::META_THUMBS_PENDING,
+			$limit
+		) );
+		return array_map( 'intval', (array) $rows );
 	}
 }
