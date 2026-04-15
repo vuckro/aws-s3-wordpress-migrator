@@ -78,8 +78,6 @@ $rows = View_Helper::wrap_rows( $data['items'] );
 	<div class="wks3m-bulk-bar">
 		<label><input type="checkbox" id="wks3m-dry-run" checked /> <?php esc_html_e( 'Dry-run', 'waaskit-s3-migrator' ); ?></label>
 		<label><input type="checkbox" id="wks3m-auto-replace" checked /> <?php esc_html_e( 'Remplacer URLs après import', 'waaskit-s3-migrator' ); ?></label>
-		<label><input type="checkbox" id="wks3m-use-alt-as-title" /> <?php esc_html_e( 'ALT → Titre', 'waaskit-s3-migrator' ); ?></label>
-		<label><input type="checkbox" id="wks3m-fill-empty-alts" /> <?php esc_html_e( 'Titre → ALT (si vide)', 'waaskit-s3-migrator' ); ?></label>
 		<span class="wks3m-bulk-bar-sep"></span>
 		<button type="button" class="button button-primary" id="wks3m-bulk-all">
 			<?php

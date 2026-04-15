@@ -3,6 +3,10 @@
  * Importer — downloads a remote image, inserts it in the Media Library, and
  * writes alt/title/source metadata.
  *
+ * The values written come straight from the Migration_Row (alt_text,
+ * derived_title). To influence them, use the Transform tool on the Settings
+ * tab before importing — the import itself has no transformation knobs.
+ *
  * @package WaasKitS3Migrator
  */
 
@@ -22,36 +26,15 @@ class Importer {
 	}
 
 	/**
-	 * Resolve the (title, alt) values to write, honouring the two optional
-	 * options exposed on the Queue tab.
-	 *
-	 * @param array{use_alt_as_title?:bool,fill_empty_alts?:bool} $opts
-	 * @return array{0:string,1:string} [title, alt]
-	 */
-	public static function resolve_title_and_alt( Migration_Row $row, array $opts = [] ): array {
-		$alt   = $row->alt_text();
-		$title = $row->derived_title();
-
-		if ( ! empty( $opts['use_alt_as_title'] ) && '' !== $alt ) {
-			$title = $alt;
-		}
-		if ( ! empty( $opts['fill_empty_alts'] ) && '' === $alt && '' !== $title ) {
-			$alt = $title;
-		}
-		return [ $title, $alt ];
-	}
-
-	/**
 	 * Simulate an import — returns what would be written. No side effects.
 	 */
-	public function dry_run( Migration_Row $row, array $opts = [] ): array {
-		$source          = $row->best_variant();
-		[ $title, $alt ] = self::resolve_title_and_alt( $row, $opts );
+	public function dry_run( Migration_Row $row ): array {
+		$source = $row->best_variant();
 		return [
 			'source_url'    => $source,
 			'would_save_as' => sanitize_file_name( Url_Helper::base_key( $source, Settings::strip_strapi_prefixes() ) ),
-			'post_title'    => $title,
-			'alt_text'      => $alt,
+			'post_title'    => $row->derived_title(),
+			'alt_text'      => $row->alt_text(),
 		];
 	}
 
@@ -60,7 +43,7 @@ class Importer {
 	 *
 	 * @return array{attachment_id:int,attachment_url:string}|\WP_Error
 	 */
-	public function import( Migration_Row $row, array $opts = [] ) {
+	public function import( Migration_Row $row ) {
 		$source = $row->best_variant();
 		if ( '' === $source ) {
 			return new \WP_Error( 'wks3m_no_url', 'No source URL stored for this row.' );
@@ -75,7 +58,7 @@ class Importer {
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 
-		[ $title, $alt ] = self::resolve_title_and_alt( $row, $opts );
+		$title = $row->derived_title();
 		if ( '' === $title ) {
 			$title = pathinfo( $file['filename'], PATHINFO_FILENAME );
 		}
@@ -100,6 +83,7 @@ class Importer {
 
 		wp_update_attachment_metadata( $attach_id, wp_generate_attachment_metadata( $attach_id, $file['path'] ) );
 
+		$alt = $row->alt_text();
 		if ( '' !== $alt ) {
 			update_post_meta( $attach_id, '_wp_attachment_image_alt', $alt );
 		}

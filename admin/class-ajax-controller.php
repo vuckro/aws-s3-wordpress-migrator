@@ -64,13 +64,9 @@ class Ajax_Controller {
 	public function import_row(): void {
 		$this->guard();
 
-		$id      = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
-		$dry_run = Util::bool_param( $_POST['dry_run'] ?? null, true );
-		$opts    = [
-			'auto_replace'     => Util::bool_param( $_POST['auto_replace'] ?? null, false ),
-			'use_alt_as_title' => Util::bool_param( $_POST['use_alt_as_title'] ?? null, false ),
-			'fill_empty_alts'  => Util::bool_param( $_POST['fill_empty_alts'] ?? null, false ),
-		];
+		$id           = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
+		$dry_run      = Util::bool_param( $_POST['dry_run'] ?? null, true );
+		$auto_replace = Util::bool_param( $_POST['auto_replace'] ?? null, false );
 
 		$store = Plugin::instance()->mapping_store();
 		$row   = $store->get( $id );
@@ -83,13 +79,13 @@ class Ajax_Controller {
 		if ( $dry_run ) {
 			wp_send_json_success( [
 				'dry_run' => true,
-				'preview' => $importer->dry_run( $row, $opts ),
+				'preview' => $importer->dry_run( $row ),
 			] );
 		}
 
 		$attachment_id = $row->attachment_id();
 		if ( ! $row->is_imported() ) {
-			$result = $importer->import( $row, $opts );
+			$result = $importer->import( $row );
 			if ( is_wp_error( $result ) ) {
 				$store->mark_failed( $id, $result->get_error_message() );
 				wp_send_json_error( [ 'message' => $result->get_error_message() ], 500 );
@@ -106,7 +102,7 @@ class Ajax_Controller {
 			'replaced'       => false,
 		];
 
-		if ( $opts['auto_replace'] ) {
+		if ( $auto_replace ) {
 			$rep = ( new Replacer() )->replace_for_row( $row, $attachment_id );
 			if ( empty( $rep['errors'] ) && $rep['posts_updated'] > 0 ) {
 				$store->mark_replaced( $id );

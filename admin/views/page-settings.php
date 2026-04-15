@@ -84,9 +84,10 @@ defined( 'ABSPATH' ) || exit;
 	<h2><?php esc_html_e( 'Options d\'import', 'waaskit-s3-migrator' ); ?></h2>
 	<p class="description"><?php esc_html_e( 'Ces options se règlent dans la barre de la File d\'attente et s\'appliquent à chaque migration (unitaire ou en masse).', 'waaskit-s3-migrator' ); ?></p>
 	<ul class="wks3m-options-summary">
-		<li><strong><?php esc_html_e( 'Dry-run', 'waaskit-s3-migrator' ); ?></strong> — <?php esc_html_e( 'simule sans télécharger ni écrire.', 'waaskit-s3-migrator' ); ?></li>
+		<li><strong><?php esc_html_e( 'Dry-run', 'waaskit-s3-migrator' ); ?></strong> — <?php esc_html_e( 'simule l\'import sans rien télécharger ni écrire.', 'waaskit-s3-migrator' ); ?></li>
 		<li><strong><?php esc_html_e( 'Remplacer URLs après import', 'waaskit-s3-migrator' ); ?></strong> — <?php esc_html_e( 'enchaîne automatiquement le remplacement dans le contenu des articles.', 'waaskit-s3-migrator' ); ?></li>
-		<li><strong><?php esc_html_e( 'ALT → Titre', 'waaskit-s3-migrator' ); ?></strong> — <?php esc_html_e( 'utilise l\'ALT détecté comme post_title de l\'attachment.', 'waaskit-s3-migrator' ); ?></li>
-		<li><strong><?php esc_html_e( 'Titre → ALT (si vide)', 'waaskit-s3-migrator' ); ?></strong> — <?php esc_html_e( 'si aucun ALT n\'a été détecté, utilise le titre dérivé comme fallback.', 'waaskit-s3-migrator' ); ?></li>
 	</ul>
+	<p class="description">
+		<?php esc_html_e( 'Pour modifier les ALT ou les titres avant import (ex : remplir les ALT vides, nettoyer des placeholders), utilise l\'outil Transform ci-dessus.', 'waaskit-s3-migrator' ); ?>
+	</p>
 </div>

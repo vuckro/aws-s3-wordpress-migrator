@@ -91,10 +91,8 @@
 
 	function importOptions() {
 		return {
-			dry_run:          $('#wks3m-dry-run').is(':checked') ? 1 : 0,
-			auto_replace:     $('#wks3m-auto-replace').is(':checked') ? 1 : 0,
-			use_alt_as_title: $('#wks3m-use-alt-as-title').is(':checked') ? 1 : 0,
-			fill_empty_alts:  $('#wks3m-fill-empty-alts').is(':checked') ? 1 : 0
+			dry_run:      $('#wks3m-dry-run').is(':checked') ? 1 : 0,
+			auto_replace: $('#wks3m-auto-replace').is(':checked') ? 1 : 0
 		};
 	}
 
