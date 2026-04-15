@@ -147,51 +147,41 @@ class Transform {
 	 */
 	private function where_clause( string $column, array $condition ): array {
 		global $wpdb;
-		switch ( $condition['type'] ) {
-			case self::COND_CONTAINS:
-				return [ "{$column} LIKE %s", [ '%' . $wpdb->esc_like( (string) $condition['value'] ) . '%' ] ];
-			case self::COND_EQUALS:
-				return [ "{$column} = %s", [ (string) $condition['value'] ] ];
-			case self::COND_EMPTY:
-				return [ "({$column} IS NULL OR {$column} = '')", [] ];
-		}
-		return [ '1=0', [] ];
+		$value = (string) ( $condition['value'] ?? '' );
+		return match ( $condition['type'] ) {
+			self::COND_CONTAINS => [ "{$column} LIKE %s", [ '%' . $wpdb->esc_like( $value ) . '%' ] ],
+			self::COND_EQUALS   => [ "{$column} = %s", [ $value ] ],
+			self::COND_EMPTY    => [ "({$column} IS NULL OR {$column} = '')", [] ],
+			default             => [ '1=0', [] ],
+		};
 	}
 
 	/**
 	 * @return array{0:string,1:array<int,string>}
 	 */
 	private function set_clause( string $column, array $action ): array {
-		switch ( $action['type'] ) {
-			case self::ACTION_SET_LITERAL:
-				return [ "{$column} = %s", [ (string) $action['value'] ] ];
-			case self::ACTION_CLEAR:
-				return [ "{$column} = ''", [] ];
-			case self::ACTION_FROM_TITLE:
-				return [ "{$column} = derived_title", [] ];
-			case self::ACTION_FROM_ALT:
-				return [ "{$column} = alt_text", [] ];
-			case self::ACTION_REMOVE_SUBSTRING:
-				return [ "{$column} = REPLACE({$column}, %s, '')", [ (string) $action['value'] ] ];
-		}
-		return [ "{$column} = {$column}", [] ];
+		$value = (string) ( $action['value'] ?? '' );
+		return match ( $action['type'] ) {
+			self::ACTION_SET_LITERAL      => [ "{$column} = %s", [ $value ] ],
+			self::ACTION_CLEAR            => [ "{$column} = ''", [] ],
+			self::ACTION_FROM_TITLE       => [ "{$column} = derived_title", [] ],
+			self::ACTION_FROM_ALT         => [ "{$column} = alt_text", [] ],
+			self::ACTION_REMOVE_SUBSTRING => [ "{$column} = REPLACE({$column}, %s, '')", [ $value ] ],
+			default                       => [ "{$column} = {$column}", [] ],
+		};
 	}
 
 	/** Simulate the action in PHP (kept in sync with set_clause). */
 	private function compute_after( string $before, string $alt_text, string $derived_title, array $action ): string {
-		switch ( $action['type'] ) {
-			case self::ACTION_SET_LITERAL:
-				return (string) ( $action['value'] ?? '' );
-			case self::ACTION_CLEAR:
-				return '';
-			case self::ACTION_FROM_TITLE:
-				return $derived_title;
-			case self::ACTION_FROM_ALT:
-				return $alt_text;
-			case self::ACTION_REMOVE_SUBSTRING:
-				return str_replace( (string) ( $action['value'] ?? '' ), '', $before );
-		}
-		return $before;
+		$value = (string) ( $action['value'] ?? '' );
+		return match ( $action['type'] ) {
+			self::ACTION_SET_LITERAL      => $value,
+			self::ACTION_CLEAR            => '',
+			self::ACTION_FROM_TITLE       => $derived_title,
+			self::ACTION_FROM_ALT         => $alt_text,
+			self::ACTION_REMOVE_SUBSTRING => str_replace( $value, '', $before ),
+			default                       => $before,
+		};
 	}
 
 	/**

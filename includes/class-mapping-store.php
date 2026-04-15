@@ -178,15 +178,15 @@ class Mapping_Store {
 		);
 	}
 
-	public function mark_rolled_back( int $id, bool $attachment_deleted ): void {
+	public function mark_rolled_back( int $id ): void {
 		global $wpdb;
-		$payload = [
-			'status'         => 'rolled_back',
-			'rolled_back_at' => current_time( 'mysql' ),
-		];
-		if ( $attachment_deleted ) {
-			$payload['attachment_id'] = null;
-		}
-		$wpdb->update( $this->table(), $payload, [ 'id' => $id ] );
+		$wpdb->update(
+			$this->table(),
+			[
+				'status'         => 'rolled_back',
+				'rolled_back_at' => current_time( 'mysql' ),
+			],
+			[ 'id' => $id ]
+		);
 	}
 }

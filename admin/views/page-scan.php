@@ -1,6 +1,6 @@
 <?php
 /**
- * Scan tab view (Phase 1 — read-only).
+ * Scan tab — configure source hosts, run the detection scan, see counters.
  *
  * @package WaasKitS3Migrator
  */
@@ -110,9 +110,7 @@ $saved          = isset( $_GET['sources_saved'] );
 		<table class="widefat striped">
 			<tbody>
 				<tr><th scope="row"><?php esc_html_e( 'Posts analysés', 'waaskit-s3-migrator' ); ?></th><td class="processed">0</td></tr>
-				<tr><th scope="row"><?php esc_html_e( 'Images distinctes (variantes regroupées)', 'waaskit-s3-migrator' ); ?></th><td class="base-keys">0</td></tr>
-				<tr><th scope="row"><?php esc_html_e( 'URLs uniques trouvées (toutes variantes)', 'waaskit-s3-migrator' ); ?></th><td class="urls-found">0</td></tr>
-				<tr><th scope="row"><?php esc_html_e( 'Déjà connues (migrées ou en cours)', 'waaskit-s3-migrator' ); ?></th><td class="already-known">0</td></tr>
+				<tr><th scope="row"><?php esc_html_e( 'URLs uniques trouvées', 'waaskit-s3-migrator' ); ?></th><td class="urls-found">0</td></tr>
 				<tr><th scope="row"><?php esc_html_e( 'Lignes postmeta contenant des URLs externes', 'waaskit-s3-migrator' ); ?></th><td class="postmeta-hits">–</td></tr>
 				<tr><th scope="row"><?php esc_html_e( 'Lignes options contenant des URLs externes', 'waaskit-s3-migrator' ); ?></th><td class="options-hits">–</td></tr>
 			</tbody>
@@ -124,8 +122,8 @@ $saved          = isset( $_GET['sources_saved'] );
 			<?php
 			printf(
 				/* translators: %s: Queue tab link */
-				esc_html__( 'Scan terminé. Passe à l\'onglet %s pour voir les images détectées, leurs métadonnées, et lancer les imports.', 'waaskit-s3-migrator' ),
-				'<a href="' . esc_url( admin_url( 'tools.php?page=wks3m&tab=queue' ) ) . '"><strong>File d\'attente</strong></a>'
+				esc_html__( 'Scan terminé. Passe à l\'onglet %s pour voir les images détectées et lancer les imports.', 'waaskit-s3-migrator' ),
+				'<a href="' . \WKS3M\Admin\View_Helper::tab_url( 'queue' ) . '"><strong>' . esc_html__( 'File d\'attente', 'waaskit-s3-migrator' ) . '</strong></a>'
 			);
 			?>
 		</p>

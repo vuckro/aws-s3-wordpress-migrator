@@ -1,17 +1,3 @@
-/* --------- Tabs --------- */
-.wks3m-wrap .nav-tab.disabled { pointer-events: none; opacity: .55; }
-.wks3m-wrap .wks3m-pill {
-	display: inline-block;
-	margin-left: .35em;
-	padding: 0 .45em;
-	font-size: 10px;
-	line-height: 16px;
-	background: #e2e8f0;
-	color: #475569;
-	border-radius: 3px;
-	vertical-align: middle;
-}
-
 /* --------- Panels --------- */
 .wks3m-panel {
 	margin-top: 1.5em;

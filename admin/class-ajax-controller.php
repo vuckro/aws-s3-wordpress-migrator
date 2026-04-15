@@ -141,9 +141,8 @@ class Ajax_Controller {
 
 	public function rollback_row(): void {
 		$this->guard();
-		$id = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
-
-		$res = ( new Rollback_Manager() )->rollback( $id, false );
+		$id  = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
+		$res = ( new Rollback_Manager() )->rollback( $id );
 		if ( ! empty( $res['errors'] ) && 0 === (int) $res['posts_restored'] ) {
 			wp_send_json_error( [ 'message' => implode( ' | ', $res['errors'] ) ], 500 );
 		}

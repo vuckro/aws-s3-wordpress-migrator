@@ -2,67 +2,76 @@
 (function ($) {
 	'use strict';
 
-	/* ---------- shared helpers ---------- */
+	var T = WKS3M.i18n;
+
+	/* ---------- shared AJAX helpers ---------- */
 
 	function post(action, data) {
 		return $.post(WKS3M.ajax_url, $.extend({ action: action, nonce: WKS3M.nonce }, data || {}));
 	}
 
-	function errOf(resp) {
-		return (resp && resp.data && resp.data.message) || WKS3M.i18n.error;
+	function errMsg(resp) {
+		return (resp && resp.data && resp.data.message) || T.error;
 	}
 
-	function setStatusCell($row, status) {
-		var label = WKS3M.i18n[status] || status;
+	function esc(str) { return $('<div/>').text(str == null ? '' : str).html(); }
+
+	function setStatus($row, status) {
 		$row.find('.wks3m-status')
-			.removeClass(function (_, cn) {
-				return (cn.match(/wks3m-status-\S+/g) || []).join(' ');
-			})
+			.removeClass(function (_, cn) { return (cn.match(/wks3m-status-\S+/g) || []).join(' '); })
 			.addClass('wks3m-status wks3m-status-' + status)
-			.text(label);
+			.text(T[status] || status);
+	}
+
+	function editMediaLink(attachmentId) {
+		return '<a class="button button-link" href="' +
+			WKS3M.edit_post_url_tmpl.replace('%d', attachmentId) +
+			'" target="_blank">' + T.view_media + '</a>';
+	}
+
+	function renderProgress($wrap, pct, label) {
+		$wrap.prop('hidden', false);
+		$wrap.find('.wks3m-progress-bar span').css('width', pct + '%');
+		$wrap.find('.wks3m-progress-label').text(label);
 	}
 
 	/* ---------- Scan tab ---------- */
 
-	var scan = { offset: 0, limit: 100, total: 0, processed: 0, urls: 0, running: false };
-
-	function renderScanProgress() {
-		var pct = scan.total > 0 ? Math.min(100, Math.round((scan.processed / scan.total) * 100)) : 0;
-		var $p = $('#wks3m-scan-progress').prop('hidden', false);
-		$p.find('.wks3m-progress-bar span').css('width', pct + '%');
-		$p.find('.wks3m-progress-label').text(pct + '% — ' + scan.processed + ' / ' + scan.total);
-	}
-
-	function renderScanSummary() {
-		var $s = $('#wks3m-scan-summary').prop('hidden', false);
-		$s.find('.processed').text(scan.processed + ' / ' + scan.total);
-		$s.find('.urls-found').text(scan.urls);
-	}
+	var scan = null;
 
 	function runScanBatch() {
-		if (!scan.running) return;
+		if (!scan || !scan.running) return;
 		post('wks3m_scan_batch', { offset: scan.offset, limit: scan.limit })
 			.done(function (resp) {
-				if (!resp || !resp.success) return finishScan(true);
-				scan.total = resp.data.total;
+				if (!resp || !resp.success) return endScan(true);
+				scan.total      = resp.data.total;
 				scan.processed += resp.data.processed;
-				scan.urls += resp.data.urls_found;
-				scan.offset = resp.data.next_offset;
-				renderScanProgress(); renderScanSummary();
+				scan.urls      += resp.data.urls_found;
+				scan.offset     = resp.data.next_offset;
+				updateScanUI();
 				if (resp.data.processed > 0 && scan.offset < scan.total) {
 					setTimeout(runScanBatch, 50);
 				} else {
-					finishScan(false);
+					endScan(false);
 				}
 			})
-			.fail(function () { finishScan(true); });
+			.fail(function () { endScan(true); });
 	}
 
-	function finishScan(isError) {
+	function updateScanUI() {
+		var pct = scan.total > 0 ? Math.min(100, Math.round((scan.processed / scan.total) * 100)) : 0;
+		renderProgress($('#wks3m-scan-progress'), pct, pct + '% — ' + scan.processed + ' / ' + scan.total);
+		$('#wks3m-scan-summary').prop('hidden', false)
+			.find('.processed').text(scan.processed + ' / ' + scan.total).end()
+			.find('.urls-found').text(scan.urls);
+	}
+
+	function endScan(isError) {
+		if (!scan) return;
 		scan.running = false;
 		$('#wks3m-scan-spinner').removeClass('is-active');
 		$('#wks3m-scan-start').prop('disabled', false);
-		if (isError) { alert(WKS3M.i18n.error); return; }
+		if (isError) { alert(T.error); return; }
 		$('#wks3m-scan-done').prop('hidden', false);
 		post('wks3m_scan_secondary').done(function (r) {
 			if (r && r.success) {
@@ -81,13 +90,11 @@
 		};
 		$('#wks3m-scan-start').prop('disabled', true);
 		$('#wks3m-scan-spinner').addClass('is-active');
-		$('#wks3m-scan-progress .wks3m-progress-bar span').css('width', '0%');
-		$('#wks3m-scan-progress .wks3m-progress-label').text(WKS3M.i18n.scanning);
-		$('#wks3m-scan-progress').prop('hidden', false);
+		renderProgress($('#wks3m-scan-progress'), 0, T.scanning);
 		runScanBatch();
 	}
 
-	/* ---------- Queue tab: single + bulk import, replace, rollback ---------- */
+	/* ---------- Queue: single-row actions ---------- */
 
 	function importOptions() {
 		return {
@@ -96,267 +103,217 @@
 		};
 	}
 
-	function swapRowActionLinkToMedia($row, attachmentId) {
-		$row.find('.wks3m-import-btn, .wks3m-replace-btn').replaceWith(
-			'<a class="button button-link" href="/wp-admin/post.php?post=' + attachmentId + '&action=edit" target="_blank">' +
-			WKS3M.i18n.view_media + '</a>'
-		);
-	}
-
 	function handleImport(e) {
 		var $btn = $(e.currentTarget);
-		var id = parseInt($btn.data('id'), 10);
+		var id   = parseInt($btn.data('id'), 10);
 		var opts = importOptions();
-		if (!opts.dry_run && !window.confirm(WKS3M.i18n.confirm_real)) return;
+		if (!opts.dry_run && !window.confirm(T.confirm_real)) return;
 
-		$btn.prop('disabled', true).text(WKS3M.i18n.importing);
+		$btn.prop('disabled', true).text(T.importing);
 		post('wks3m_import_row', $.extend({ id: id }, opts))
 			.done(function (resp) {
-				if (!resp || !resp.success) {
-					$btn.prop('disabled', false).text('Migrer');
-					alert(errOf(resp));
-					return;
-				}
 				var $row = $('tr[data-id="' + id + '"]');
-				if (resp.data.dry_run) {
-					$btn.prop('disabled', false).text('Migrer');
-					setStatusCell($row, 'pending');
-					var p = resp.data.preview;
-					alert('Dry-run\n\nSource: ' + p.source_url + '\nFichier: ' + p.would_save_as +
-						'\nTitre: ' + p.post_title + '\nAlt: ' + p.alt_text);
+				if (!resp || !resp.success) {
+					$btn.prop('disabled', false).text(T.btn_migrate);
+					alert(errMsg(resp));
 					return;
 				}
-				setStatusCell($row, resp.data.replaced ? 'replaced' : 'imported');
-				swapRowActionLinkToMedia($row, resp.data.attachment_id);
+				if (resp.data.dry_run) {
+					$btn.prop('disabled', false).text(T.btn_migrate);
+					var p = resp.data.preview;
+					alert(T.dry_run_tpl
+						.replace('%source%', p.source_url)
+						.replace('%file%',   p.would_save_as)
+						.replace('%title%',  p.post_title)
+						.replace('%alt%',    p.alt_text));
+					return;
+				}
+				setStatus($row, resp.data.status);
+				$row.find('.wks3m-import-btn, .wks3m-replace-btn').replaceWith(editMediaLink(resp.data.attachment_id));
 			})
 			.fail(function () {
-				$btn.prop('disabled', false).text('Migrer');
-				alert(WKS3M.i18n.error);
+				$btn.prop('disabled', false).text(T.btn_migrate);
+				alert(T.error);
 			});
 	}
 
 	function handleReplace(e) {
 		var $btn = $(e.currentTarget);
-		var id = parseInt($btn.data('id'), 10);
+		var id   = parseInt($btn.data('id'), 10);
 		$btn.prop('disabled', true);
 		post('wks3m_replace_row', { id: id })
 			.done(function (resp) {
-				if (!resp || !resp.success) { $btn.prop('disabled', false); alert(errOf(resp)); return; }
-				var $row = $('tr[data-id="' + id + '"]');
-				setStatusCell($row, 'replaced');
-				$btn.replaceWith('<em>' + WKS3M.i18n.replaced + '</em>');
+				if (!resp || !resp.success) { $btn.prop('disabled', false); alert(errMsg(resp)); return; }
+				setStatus($btn.closest('tr'), 'replaced');
+				$btn.replaceWith('<em>' + T.replaced + '</em>');
 			})
-			.fail(function () { $btn.prop('disabled', false); alert(WKS3M.i18n.error); });
+			.fail(function () { $btn.prop('disabled', false); alert(T.error); });
 	}
 
 	function handleRollback(e) {
-		if (!window.confirm(WKS3M.i18n.confirm_rollback)) return;
+		if (!window.confirm(T.confirm_rollback)) return;
 		var $btn = $(e.currentTarget);
-		var id = parseInt($btn.data('id'), 10);
+		var id   = parseInt($btn.data('id'), 10);
 		$btn.prop('disabled', true);
 		post('wks3m_rollback_row', { id: id })
 			.done(function (resp) {
-				if (!resp || !resp.success) { $btn.prop('disabled', false); alert(errOf(resp)); return; }
-				var $row = $('tr[data-id="' + id + '"]');
-				setStatusCell($row, 'rolled_back');
-				$btn.replaceWith('<em>' + WKS3M.i18n.rolled_back + '</em>');
+				if (!resp || !resp.success) { $btn.prop('disabled', false); alert(errMsg(resp)); return; }
+				setStatus($btn.closest('tr'), 'rolled_back');
+				$btn.replaceWith('<em>' + T.rolled_back + '</em>');
 			})
-			.fail(function () { $btn.prop('disabled', false); alert(WKS3M.i18n.error); });
+			.fail(function () { $btn.prop('disabled', false); alert(T.error); });
 	}
 
-	/* ---------- Queue / History bulk driver (sequential + stoppable) ---------- */
+	/* ---------- Bulk driver (sequential, stoppable, shared between migrate & rollback) ---------- */
 
-	// One tiny state machine handles both "migrate" and "rollback" bulk runs.
-	// Sequential: one AJAX call at a time. The Stop button sets running=false
-	// so the next iteration bails out cleanly without killing the in-flight
-	// request.
 	var bulk = null;
 
-	function resetBulk(kind, ids) {
-		return {
-			kind: kind,               // 'import' or 'rollback'
-			ids: ids,
-			index: 0,
-			total: ids.length,
-			ok: 0, ko: 0,
-			running: true
-		};
-	}
-
-	function renderBulkProgress(label) {
-		if (!bulk) return;
+	function bulkSummary(prefix) {
 		var pct = bulk.total > 0 ? Math.round((bulk.index / bulk.total) * 100) : 0;
-		var $p = $('#wks3m-bulk-progress').prop('hidden', false);
-		$p.find('.wks3m-progress-bar span').css('width', pct + '%');
-		$p.find('.wks3m-progress-label').text(
-			(label || '') + pct + '% — ' + bulk.index + ' / ' + bulk.total +
-			' (✔ ' + bulk.ok + ' · ✖ ' + bulk.ko + ')'
-		);
+		return (prefix ? prefix + ' — ' : '') + pct + '% — ' +
+			bulk.index + ' / ' + bulk.total + ' (✔ ' + bulk.ok + ' · ✖ ' + bulk.ko + ')';
 	}
 
-	function finishBulk(stopped) {
-		var summary = bulk;
-		$('#wks3m-bulk-spinner').removeClass('is-active');
-		$('#wks3m-bulk-stop').prop('hidden', true);
-		$('#wks3m-bulk-all, #wks3m-bulk-selected, #wks3m-rollback-all').prop('disabled', false);
-		bulk = null;
-		if (!summary) return;
-		renderBulk_internal_summary(summary, stopped);
-		if (summary.total > 0) {
-			setTimeout(function () {
-				var prefix = stopped ? 'Arrêté' : 'Terminé';
-				if (window.confirm(prefix + ' (✔ ' + summary.ok + ' · ✖ ' + summary.ko +
-					'). Recharger la page ?')) {
-					location.reload();
-				}
-			}, 200);
-		}
+	function drawBulk(prefix) {
+		var pct = bulk.total > 0 ? Math.round((bulk.index / bulk.total) * 100) : 0;
+		renderProgress($('#wks3m-bulk-progress'), pct, bulkSummary(prefix));
 	}
 
-	function renderBulk_internal_summary(s, stopped) {
-		var pct = s.total > 0 ? Math.round((s.index / s.total) * 100) : 0;
-		$('#wks3m-bulk-progress').prop('hidden', false)
-			.find('.wks3m-progress-label').text(
-				(stopped ? 'Arrêté — ' : 'Terminé — ') +
-				pct + '% — ' + s.index + ' / ' + s.total +
-				' (✔ ' + s.ok + ' · ✖ ' + s.ko + ')'
-			);
-	}
-
-	function runBulkNext() {
+	function bulkNext() {
 		if (!bulk) return;
-		if (!bulk.running) return finishBulk(true);
-		if (bulk.index >= bulk.ids.length) return finishBulk(false);
+		if (!bulk.running)               return endBulk(true);
+		if (bulk.index >= bulk.total)    return endBulk(false);
 
 		var id = bulk.ids[bulk.index];
-		var action = bulk.kind === 'rollback' ? 'wks3m_rollback_row' : 'wks3m_import_row';
-		var payload = bulk.kind === 'rollback' ? { id: id } : $.extend({ id: id }, importOptions());
+		var isRollback = bulk.kind === 'rollback';
+		var action  = isRollback ? 'wks3m_rollback_row' : 'wks3m_import_row';
+		var payload = isRollback ? { id: id } : $.extend({ id: id }, importOptions());
 
 		post(action, payload).always(function (resp) {
+			var $row = $('tr[data-id="' + id + '"]');
 			if (resp && resp.success) {
 				bulk.ok++;
-				var $row = $('tr[data-id="' + id + '"]');
 				if ($row.length) {
-					var next;
-					if (bulk.kind === 'rollback') {
-						next = 'rolled_back';
-					} else if (resp.data && resp.data.dry_run) {
-						next = 'pending';
-					} else if (resp.data && resp.data.status) {
-						next = resp.data.status;
-					} else {
-						next = 'imported';
-					}
-					setStatusCell($row, next);
+					setStatus($row, isRollback
+						? 'rolled_back'
+						: ((resp.data && resp.data.dry_run) ? 'pending'
+							: (resp.data && resp.data.status) || 'imported'));
 				}
 			} else {
 				bulk.ko++;
 			}
 			bulk.index++;
-			renderBulkProgress();
-			setTimeout(runBulkNext, 50);
+			drawBulk();
+			setTimeout(bulkNext, 50);
 		});
 	}
 
-	function startBulk(kind, ids, confirmKey) {
-		if (!ids || !ids.length) { alert('Rien à traiter.'); return; }
-		if (confirmKey && !window.confirm(WKS3M.i18n[confirmKey])) return;
+	function endBulk(stopped) {
+		var summary = bulk;
+		$('#wks3m-bulk-spinner').removeClass('is-active');
+		$('#wks3m-bulk-stop').prop('hidden', true).prop('disabled', false).text(T.stop);
+		$('#wks3m-bulk-all, #wks3m-bulk-selected, #wks3m-rollback-all').prop('disabled', false);
+		bulk = null;
+		if (!summary) return;
+		bulk = summary;                    // keep for drawBulk label
+		drawBulk(stopped ? T.stopped : T.done);
+		bulk = null;
+		if (summary.total === 0) return;
+		setTimeout(function () {
+			var head = (stopped ? T.stopped : T.done) + ' (✔ ' + summary.ok + ' · ✖ ' + summary.ko + ')';
+			if (window.confirm(head + '\n\n' + T.reload_prompt)) location.reload();
+		}, 200);
+	}
 
-		bulk = resetBulk(kind, ids);
+	function startBulk(kind, ids, confirmKey) {
+		if (!ids || !ids.length) { alert(T.nothing_to_do); return; }
+		if (confirmKey && !window.confirm(T[confirmKey])) return;
+
+		bulk = { kind: kind, ids: ids, index: 0, total: ids.length, ok: 0, ko: 0, running: true };
 		$('#wks3m-bulk-all, #wks3m-bulk-selected, #wks3m-rollback-all').prop('disabled', true);
 		$('#wks3m-bulk-stop').prop('hidden', false);
 		$('#wks3m-bulk-spinner').addClass('is-active');
-		$('#wks3m-bulk-progress .wks3m-progress-label').text(
-			kind === 'rollback' ? 'Rollback en cours…' : WKS3M.i18n.bulk_progress
-		);
-		$('#wks3m-bulk-progress').prop('hidden', false);
-		renderBulkProgress();
-		runBulkNext();
+		drawBulk(kind === 'rollback' ? T.rollback_progress : T.bulk_progress);
+		bulkNext();
 	}
 
 	function handleStop() {
 		if (!bulk) return;
 		bulk.running = false;
-		$('#wks3m-bulk-stop').prop('disabled', true).text('Arrêt en cours…');
+		$('#wks3m-bulk-stop').prop('disabled', true).text(T.stopping);
 	}
 
 	function handleBulkAll() {
-		var confirmIfReal = $('#wks3m-dry-run').is(':checked') ? null : 'confirm_bulk';
+		var needsConfirm = $('#wks3m-dry-run').is(':checked') ? null : 'confirm_bulk';
 		post('wks3m_pending_ids')
 			.done(function (resp) {
-				if (!resp || !resp.success) return alert(WKS3M.i18n.error);
-				startBulk('import', resp.data.ids || [], confirmIfReal);
+				if (!resp || !resp.success) return alert(T.error);
+				startBulk('import', resp.data.ids || [], needsConfirm);
 			})
-			.fail(function () { alert(WKS3M.i18n.error); });
+			.fail(function () { alert(T.error); });
 	}
 
 	function handleBulkSelected() {
-		var confirmIfReal = $('#wks3m-dry-run').is(':checked') ? null : 'confirm_bulk';
+		var needsConfirm = $('#wks3m-dry-run').is(':checked') ? null : 'confirm_bulk';
 		var ids = $('.wks3m-row-check:checked').map(function () { return parseInt(this.value, 10); }).get();
-		startBulk('import', ids, confirmIfReal);
+		startBulk('import', ids, needsConfirm);
 	}
 
 	function handleRollbackAll() {
 		post('wks3m_rollbackable_ids')
 			.done(function (resp) {
-				if (!resp || !resp.success) return alert(WKS3M.i18n.error);
+				if (!resp || !resp.success) return alert(T.error);
 				startBulk('rollback', resp.data.ids || [], 'confirm_rollback_all');
 			})
-			.fail(function () { alert(WKS3M.i18n.error); });
+			.fail(function () { alert(T.error); });
 	}
 
 	/* ---------- Settings: Transform rule ---------- */
 
 	function transformRule() {
 		return {
-			field:           $('#wks3m-tr-field').val(),
-			condition_type:  $('#wks3m-tr-cond').val(),
-			condition_value: $('#wks3m-tr-cond-value').val(),
-			action_type:     $('#wks3m-tr-action').val(),
-			action_value:    $('#wks3m-tr-action-value').val(),
+			field:              $('#wks3m-tr-field').val(),
+			condition_type:     $('#wks3m-tr-cond').val(),
+			condition_value:    $('#wks3m-tr-cond-value').val(),
+			action_type:        $('#wks3m-tr-action').val(),
+			action_value:       $('#wks3m-tr-action-value').val(),
 			update_attachments: $('#wks3m-tr-update-attachments').is(':checked') ? 1 : 0
 		};
 	}
 
 	function refreshTransformInputs() {
 		var cond = $('#wks3m-tr-cond').val();
-		$('#wks3m-tr-cond-value').prop('hidden', cond === 'empty').prop('required', cond !== 'empty');
+		$('#wks3m-tr-cond-value').prop('hidden', cond === 'empty');
 
 		var action = $('#wks3m-tr-action').val();
-		var needsValue = (action === 'set_literal' || action === 'remove_substring');
-		$('#wks3m-tr-action-value').prop('hidden', !needsValue);
+		$('#wks3m-tr-action-value').prop('hidden', action !== 'set_literal' && action !== 'remove_substring');
 
-		$('#wks3m-tr-apply-btn').prop('disabled', true); // requires fresh preview
+		$('#wks3m-tr-apply-btn').prop('disabled', true);
 	}
 
 	function transformValid(rule) {
 		if (!rule.field || !rule.condition_type || !rule.action_type) return false;
-		if (rule.condition_type !== 'empty' && !rule.condition_value) return false;
-		if ((rule.action_type === 'set_literal') && rule.action_value === '') { /* allowed, == clear */ }
+		if (rule.condition_type !== 'empty' && !rule.condition_value)  return false;
 		if (rule.action_type === 'remove_substring' && !rule.action_value) return false;
 		return true;
 	}
 
 	function renderTransformPreview(data) {
-		var $wrap = $('#wks3m-tr-results').prop('hidden', false);
-		$wrap.find('.wks3m-tr-counts').html(
-			'<p><strong>' + data.rows + '</strong> ligne(s) seraient modifiées · ' +
-			'<strong>' + data.attachments + '</strong> attachments déjà importés concerné(s).</p>'
-		);
+		$('#wks3m-tr-results').prop('hidden', false)
+			.find('.wks3m-tr-counts').html(
+				'<p><strong>' + data.rows + '</strong> ligne(s) seraient modifiées · ' +
+				'<strong>' + data.attachments + '</strong> attachment(s) déjà importé(s) concerné(s).</p>'
+			);
 		var $sample = $('#wks3m-tr-sample');
-		var $tbody = $sample.find('tbody').empty();
-		if (data.sample && data.sample.length) {
-			data.sample.forEach(function (s) {
-				$tbody.append(
-					'<tr><td>#' + s.id + '</td>' +
-					'<td>' + $('<div/>').text(s.before).html() + '</td>' +
-					'<td><strong>' + $('<div/>').text(s.after).html() + '</strong></td></tr>'
-				);
-			});
-			$sample.prop('hidden', false);
-		} else {
-			$sample.prop('hidden', true);
-		}
+		var $tbody  = $sample.find('tbody').empty();
+		(data.sample || []).forEach(function (s) {
+			$tbody.append(
+				'<tr><td>#' + s.id + '</td>' +
+				'<td>' + esc(s.before) + '</td>' +
+				'<td><strong>' + esc(s.after) + '</strong></td></tr>'
+			);
+		});
+		$sample.prop('hidden', !(data.sample && data.sample.length));
 		$('#wks3m-tr-apply-btn').prop('disabled', data.rows === 0);
 	}
 
@@ -372,67 +329,57 @@
 		$('#wks3m-tr-apply-btn').prop('disabled', true);
 	}
 
-	function handleTransformPreview() {
+	function runTransform(action, renderer, confirmFirst) {
 		var rule = transformRule();
-		if (!transformValid(rule)) { alert(WKS3M.i18n.tr_invalid); return; }
+		if (!transformValid(rule)) { alert(T.tr_invalid); return; }
+		if (confirmFirst && !window.confirm(T.tr_confirm)) return;
 		$('#wks3m-tr-spinner').addClass('is-active');
-		post('wks3m_transform_preview', rule)
+		if (confirmFirst) $('#wks3m-tr-apply-btn').prop('disabled', true);
+		post(action, rule)
 			.done(function (resp) {
 				$('#wks3m-tr-spinner').removeClass('is-active');
-				if (!resp || !resp.success) return alert(errOf(resp));
-				renderTransformPreview(resp.data);
+				if (!resp || !resp.success) return alert(errMsg(resp));
+				renderer(resp.data);
 			})
 			.fail(function () {
 				$('#wks3m-tr-spinner').removeClass('is-active');
-				alert(WKS3M.i18n.error);
-			});
-	}
-
-	function handleTransformApply() {
-		var rule = transformRule();
-		if (!transformValid(rule)) { alert(WKS3M.i18n.tr_invalid); return; }
-		if (!window.confirm(WKS3M.i18n.tr_confirm)) return;
-		$('#wks3m-tr-spinner').addClass('is-active');
-		$('#wks3m-tr-apply-btn').prop('disabled', true);
-		post('wks3m_transform_apply', rule)
-			.done(function (resp) {
-				$('#wks3m-tr-spinner').removeClass('is-active');
-				if (!resp || !resp.success) return alert(errOf(resp));
-				renderTransformResult(resp.data);
-			})
-			.fail(function () {
-				$('#wks3m-tr-spinner').removeClass('is-active');
-				alert(WKS3M.i18n.error);
+				alert(T.error);
 			});
 	}
 
 	/* ---------- Bind ---------- */
 
 	$(function () {
-		// Scan
+		// Scan.
 		$('#wks3m-scan-start').on('click', startScan);
 
-		// Queue
+		// Queue / History per-row.
 		$(document).on('click', '.wks3m-import-btn',   handleImport);
 		$(document).on('click', '.wks3m-replace-btn',  handleReplace);
 		$(document).on('click', '.wks3m-rollback-btn', handleRollback);
-		$('#wks3m-bulk-all').on('click', handleBulkAll);
-		$('#wks3m-bulk-selected').on('click', handleBulkSelected);
-		$('#wks3m-rollback-all').on('click', handleRollbackAll);
-		$('#wks3m-bulk-stop').on('click', handleStop);
+
+		// Bulk.
+		$('#wks3m-bulk-all').on('click',       handleBulkAll);
+		$('#wks3m-bulk-selected').on('click',  handleBulkSelected);
+		$('#wks3m-rollback-all').on('click',   handleRollbackAll);
+		$('#wks3m-bulk-stop').on('click',      handleStop);
 		$('#wks3m-select-all').on('change', function () {
 			$('.wks3m-row-check').prop('checked', $(this).is(':checked'));
 		});
 
-		// Transform
+		// Transform.
 		if ($('#wks3m-tr-form').length) {
 			refreshTransformInputs();
 			$('#wks3m-tr-cond, #wks3m-tr-action').on('change', refreshTransformInputs);
 			$('#wks3m-tr-form :input').on('input', function () {
 				$('#wks3m-tr-apply-btn').prop('disabled', true);
 			});
-			$('#wks3m-tr-preview-btn').on('click', handleTransformPreview);
-			$('#wks3m-tr-apply-btn').on('click',   handleTransformApply);
+			$('#wks3m-tr-preview-btn').on('click', function () {
+				runTransform('wks3m_transform_preview', renderTransformPreview, false);
+			});
+			$('#wks3m-tr-apply-btn').on('click', function () {
+				runTransform('wks3m_transform_apply', renderTransformResult, true);
+			});
 		}
 	});
 }(jQuery));

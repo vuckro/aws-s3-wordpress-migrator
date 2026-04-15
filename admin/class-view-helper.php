@@ -25,6 +25,16 @@ class View_Helper {
 		return esc_url( admin_url( 'tools.php?' . http_build_query( $args ) ) );
 	}
 
+	/** Render a single nav-tab link for the plugin header. */
+	public static function nav_tab( string $tab, string $active_tab, string $label ): string {
+		return sprintf(
+			'<a href="%s" class="nav-tab %s">%s</a>',
+			self::tab_url( $tab ),
+			$tab === $active_tab ? 'nav-tab-active' : '',
+			esc_html( $label )
+		);
+	}
+
 	public static function status_pill( string $status ): string {
 		$labels = [
 			'pending'     => __( 'En attente', 'waaskit-s3-migrator' ),

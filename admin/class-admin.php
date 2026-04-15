@@ -1,6 +1,6 @@
 <?php
 /**
- * Admin UI — menu registration and asset enqueue.
+ * Admin UI — menu registration, asset enqueue, tab dispatch.
  *
  * @package WaasKitS3Migrator
  */
@@ -12,6 +12,14 @@ defined( 'ABSPATH' ) || exit;
 class Admin {
 
 	public const MENU_SLUG = 'wks3m';
+
+	/** Sub-tabs and the view file each one renders. */
+	private const TABS = [
+		'scan'     => [ 'label' => 'Scan',                  'view' => 'page-scan.php' ],
+		'queue'    => [ 'label' => 'File d\'attente',       'view' => 'page-queue.php' ],
+		'history'  => [ 'label' => 'Historique & Rollback', 'view' => 'page-history.php' ],
+		'settings' => [ 'label' => 'Réglages',              'view' => 'page-settings.php' ],
+	];
 
 	public function register(): void {
 		add_action( 'admin_menu', [ $this, 'add_menu' ] );
@@ -33,46 +41,51 @@ class Admin {
 		if ( 'tools_page_' . self::MENU_SLUG !== $hook ) {
 			return;
 		}
-		wp_enqueue_style(
-			'wks3m-admin',
-			WKS3M_PLUGIN_URL . 'assets/css/admin.css',
-			[],
-			WKS3M_VERSION
-		);
-		wp_enqueue_script(
-			'wks3m-admin',
-			WKS3M_PLUGIN_URL . 'assets/js/admin.js',
-			[ 'jquery' ],
-			WKS3M_VERSION,
-			true
-		);
-		wp_localize_script(
-			'wks3m-admin',
-			'WKS3M',
-			[
-				'ajax_url' => admin_url( 'admin-ajax.php' ),
-				'nonce'    => wp_create_nonce( 'wks3m_action' ),
-				'i18n'     => [
-					'scanning'       => __( 'Scan en cours…', 'waaskit-s3-migrator' ),
-					'error'          => __( 'Erreur.', 'waaskit-s3-migrator' ),
-					'importing'      => __( 'Import en cours…', 'waaskit-s3-migrator' ),
-					'imported'       => __( 'Importée', 'waaskit-s3-migrator' ),
-					'replaced'       => __( 'Remplacée', 'waaskit-s3-migrator' ),
-					'pending'        => __( 'En attente', 'waaskit-s3-migrator' ),
-					'failed'         => __( 'Échec', 'waaskit-s3-migrator' ),
-					'rolled_back'    => __( 'Rollback', 'waaskit-s3-migrator' ),
-					'dry_run_ok'     => __( 'Dry-run OK', 'waaskit-s3-migrator' ),
-					'confirm_real'   => __( 'Mode réel : l\'image sera téléchargée dans la Media Library. Continuer ?', 'waaskit-s3-migrator' ),
-					'confirm_bulk'   => __( 'Migrer toutes les images en attente en mode réel ? Cette opération peut prendre du temps.', 'waaskit-s3-migrator' ),
-					'confirm_rollback' => __( 'Le contenu de l\'article va être restauré à son état d\'avant la migration. Continuer ?', 'waaskit-s3-migrator' ),
-					'confirm_rollback_all' => __( 'Rollback de toutes les migrations ? Tous les posts affectés seront restaurés à leur état d\'avant migration.', 'waaskit-s3-migrator' ),
-					'bulk_progress'  => __( 'Migration en cours…', 'waaskit-s3-migrator' ),
-					'view_media'     => __( 'Voir média', 'waaskit-s3-migrator' ),
-					'tr_invalid'     => __( 'Règle incomplète. Vérifie le champ, la condition et l\'action.', 'waaskit-s3-migrator' ),
-					'tr_confirm'     => __( 'Appliquer la règle ? La modification est définitive (pas de rollback pour les transformations).', 'waaskit-s3-migrator' ),
-				],
-			]
-		);
+		wp_enqueue_style(  'wks3m-admin', WKS3M_PLUGIN_URL . 'assets/css/admin.css', [],          WKS3M_VERSION );
+		wp_enqueue_script( 'wks3m-admin', WKS3M_PLUGIN_URL . 'assets/js/admin.js',   [ 'jquery' ], WKS3M_VERSION, true );
+
+		wp_localize_script( 'wks3m-admin', 'WKS3M', [
+			'ajax_url'             => admin_url( 'admin-ajax.php' ),
+			'nonce'                => wp_create_nonce( 'wks3m_action' ),
+			// URL template — JS replaces %d with the attachment ID.
+			'edit_post_url_tmpl'   => admin_url( 'post.php?post=%d&action=edit' ),
+			'i18n'                 => self::i18n_strings(),
+		] );
+	}
+
+	/** All client-side strings in one place. */
+	private static function i18n_strings(): array {
+		return [
+			'scanning'          => __( 'Scan en cours…', 'waaskit-s3-migrator' ),
+			'bulk_progress'     => __( 'Migration en cours…', 'waaskit-s3-migrator' ),
+			'rollback_progress' => __( 'Rollback en cours…', 'waaskit-s3-migrator' ),
+			'error'             => __( 'Erreur.', 'waaskit-s3-migrator' ),
+			'importing'         => __( 'Import en cours…', 'waaskit-s3-migrator' ),
+			'btn_migrate'       => __( 'Migrer', 'waaskit-s3-migrator' ),
+			'stop'              => __( 'Stop', 'waaskit-s3-migrator' ),
+			'stopping'          => __( 'Arrêt en cours…', 'waaskit-s3-migrator' ),
+			'stopped'           => __( 'Arrêté', 'waaskit-s3-migrator' ),
+			'done'              => __( 'Terminé', 'waaskit-s3-migrator' ),
+			'nothing_to_do'     => __( 'Rien à traiter.', 'waaskit-s3-migrator' ),
+			'reload_prompt'     => __( 'Recharger la page pour voir l\'état à jour ?', 'waaskit-s3-migrator' ),
+			// Status labels.
+			'pending'           => __( 'En attente', 'waaskit-s3-migrator' ),
+			'imported'          => __( 'Importée', 'waaskit-s3-migrator' ),
+			'replaced'          => __( 'Remplacée', 'waaskit-s3-migrator' ),
+			'failed'            => __( 'Échec', 'waaskit-s3-migrator' ),
+			'rolled_back'       => __( 'Rollback', 'waaskit-s3-migrator' ),
+			'view_media'        => __( 'Voir média', 'waaskit-s3-migrator' ),
+			// Confirmations.
+			'confirm_real'      => __( 'Mode réel : l\'image sera téléchargée dans la Media Library. Continuer ?', 'waaskit-s3-migrator' ),
+			'confirm_bulk'      => __( 'Migrer toutes les images en attente en mode réel ? Cette opération peut prendre du temps.', 'waaskit-s3-migrator' ),
+			'confirm_rollback'  => __( 'Le contenu de l\'article va être restauré à son état d\'avant la migration. Continuer ?', 'waaskit-s3-migrator' ),
+			'confirm_rollback_all' => __( 'Rollback de toutes les migrations ? Les articles concernés seront restaurés.', 'waaskit-s3-migrator' ),
+			// Transform tool.
+			'tr_invalid'        => __( 'Règle incomplète. Vérifie le champ, la condition et l\'action.', 'waaskit-s3-migrator' ),
+			'tr_confirm'        => __( 'Appliquer la règle ? La modification est définitive (pas de rollback pour les transformations).', 'waaskit-s3-migrator' ),
+			// Dry-run alert template (%s placeholders replaced JS-side).
+			'dry_run_tpl'       => __( "Dry-run\n\nSource: %source%\nFichier: %file%\nTitre: %title%\nAlt: %alt%", 'waaskit-s3-migrator' ),
+		];
 	}
 
 	/**
@@ -84,60 +97,31 @@ class Admin {
 		}
 		check_admin_referer( 'wks3m_save_sources' );
 
-		$raw           = isset( $_POST['source_hosts'] ) ? (string) wp_unslash( $_POST['source_hosts'] ) : '';
-		$auto_detect   = ! empty( $_POST['auto_detect'] );
-		$strip_prefixes = ! empty( $_POST['strip_prefixes'] );
-
+		$raw   = isset( $_POST['source_hosts'] ) ? (string) wp_unslash( $_POST['source_hosts'] ) : '';
 		$hosts = preg_split( '/[\s,]+/', $raw, -1, PREG_SPLIT_NO_EMPTY ) ?: [];
 		\WKS3M\Settings::set_source_hosts( $hosts );
 
-		update_option( 'wks3m_auto_detect_external', $auto_detect ? 1 : 0 );
-		update_option( 'wks3m_strip_strapi_prefixes', $strip_prefixes ? 1 : 0 );
+		update_option( 'wks3m_auto_detect_external', ! empty( $_POST['auto_detect'] ) ? 1 : 0 );
+		update_option( 'wks3m_strip_strapi_prefixes', ! empty( $_POST['strip_prefixes'] ) ? 1 : 0 );
 
-		wp_safe_redirect( admin_url( 'tools.php?page=' . self::MENU_SLUG . '&tab=scan&sources_saved=1' ) );
+		wp_safe_redirect( View_Helper::tab_url( 'scan', [ 'sources_saved' => 1 ] ) );
 		exit;
 	}
 
 	public function render_page(): void {
 		$tab = isset( $_GET['tab'] ) ? sanitize_key( (string) $_GET['tab'] ) : 'scan';
+		if ( ! isset( self::TABS[ $tab ] ) ) {
+			$tab = 'scan';
+		}
 		?>
 		<div class="wrap wks3m-wrap">
 			<h1><?php esc_html_e( 'AWS S3 WordPress Migrator', 'waaskit-s3-migrator' ); ?></h1>
 			<nav class="nav-tab-wrapper">
-				<a href="<?php echo esc_url( admin_url( 'tools.php?page=' . self::MENU_SLUG . '&tab=scan' ) ); ?>"
-					class="nav-tab <?php echo 'scan' === $tab ? 'nav-tab-active' : ''; ?>">
-					<?php esc_html_e( 'Scan', 'waaskit-s3-migrator' ); ?>
-				</a>
-				<a href="<?php echo esc_url( admin_url( 'tools.php?page=' . self::MENU_SLUG . '&tab=queue' ) ); ?>"
-					class="nav-tab <?php echo 'queue' === $tab ? 'nav-tab-active' : ''; ?>">
-					<?php esc_html_e( 'File d\'attente', 'waaskit-s3-migrator' ); ?>
-				</a>
-				<a href="<?php echo esc_url( admin_url( 'tools.php?page=' . self::MENU_SLUG . '&tab=history' ) ); ?>"
-					class="nav-tab <?php echo 'history' === $tab ? 'nav-tab-active' : ''; ?>">
-					<?php esc_html_e( 'Historique & Rollback', 'waaskit-s3-migrator' ); ?>
-				</a>
-				<a href="<?php echo esc_url( admin_url( 'tools.php?page=' . self::MENU_SLUG . '&tab=settings' ) ); ?>"
-					class="nav-tab <?php echo 'settings' === $tab ? 'nav-tab-active' : ''; ?>">
-					<?php esc_html_e( 'Réglages', 'waaskit-s3-migrator' ); ?>
-				</a>
+				<?php foreach ( self::TABS as $key => $meta ) : ?>
+					<?php echo View_Helper::nav_tab( $key, $tab, __( $meta['label'], 'waaskit-s3-migrator' ) ); // phpcs:ignore ?>
+				<?php endforeach; ?>
 			</nav>
-			<?php
-			switch ( $tab ) {
-				case 'queue':
-					require WKS3M_PLUGIN_DIR . 'admin/views/page-queue.php';
-					break;
-				case 'history':
-					require WKS3M_PLUGIN_DIR . 'admin/views/page-history.php';
-					break;
-				case 'settings':
-					require WKS3M_PLUGIN_DIR . 'admin/views/page-settings.php';
-					break;
-				case 'scan':
-				default:
-					require WKS3M_PLUGIN_DIR . 'admin/views/page-scan.php';
-					break;
-			}
-			?>
+			<?php require WKS3M_PLUGIN_DIR . 'admin/views/' . self::TABS[ $tab ]['view']; ?>
 		</div>
 		<?php
 	}
