@@ -1,4 +1,4 @@
-# AWS S3 WordPress Migrator by WaaKit
+# AWS S3 WordPress Migrator
 
 Plugin WordPress qui **scanne**, **télécharge** et **importe** dans la Media Library locale les images hébergées sur AWS S3 (ex. `clairexplore.s3.eu-west-3.amazonaws.com`), puis **remplace** les URLs dans les articles avec un **log réversible**.
 
