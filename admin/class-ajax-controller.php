@@ -11,7 +11,7 @@ use WKS3M\Importer;
 use WKS3M\Plugin;
 use WKS3M\Replacer;
 use WKS3M\Rollback_Manager;
-use WKS3M\Search_Replace;
+use WKS3M\Transform;
 use WKS3M\Util;
 
 defined( 'ABSPATH' ) || exit;
@@ -19,14 +19,19 @@ defined( 'ABSPATH' ) || exit;
 class Ajax_Controller {
 
 	public function register(): void {
-		add_action( 'wp_ajax_wks3m_scan_batch', [ $this, 'scan_batch' ] );
-		add_action( 'wp_ajax_wks3m_scan_secondary', [ $this, 'scan_secondary' ] );
-		add_action( 'wp_ajax_wks3m_import_row', [ $this, 'import_row' ] );
-		add_action( 'wp_ajax_wks3m_replace_row', [ $this, 'replace_row' ] );
-		add_action( 'wp_ajax_wks3m_rollback_row', [ $this, 'rollback_row' ] );
-		add_action( 'wp_ajax_wks3m_pending_ids', [ $this, 'pending_ids' ] );
-		add_action( 'wp_ajax_wks3m_sr_preview', [ $this, 'sr_preview' ] );
-		add_action( 'wp_ajax_wks3m_sr_apply', [ $this, 'sr_apply' ] );
+		$handlers = [
+			'wks3m_scan_batch'     => 'scan_batch',
+			'wks3m_scan_secondary' => 'scan_secondary',
+			'wks3m_pending_ids'    => 'pending_ids',
+			'wks3m_import_row'     => 'import_row',
+			'wks3m_replace_row'    => 'replace_row',
+			'wks3m_rollback_row'   => 'rollback_row',
+			'wks3m_transform_preview' => 'transform_preview',
+			'wks3m_transform_apply'   => 'transform_apply',
+		];
+		foreach ( $handlers as $action => $method ) {
+			add_action( "wp_ajax_{$action}", [ $this, $method ] );
+		}
 	}
 
 	private function guard(): void {
@@ -40,24 +45,20 @@ class Ajax_Controller {
 		$this->guard();
 		$offset = isset( $_POST['offset'] ) ? max( 0, (int) $_POST['offset'] ) : 0;
 		$limit  = isset( $_POST['limit'] ) ? max( 1, min( 500, (int) $_POST['limit'] ) ) : 100;
-
-		$scanner = Plugin::instance()->scanner();
-		$result  = $scanner->scan_posts_batch( $offset, $limit );
-		unset( $result['matches'] );
-		wp_send_json_success( $result );
+		wp_send_json_success( Plugin::instance()->scanner()->scan_posts_batch( $offset, $limit ) );
 	}
 
 	public function scan_secondary(): void {
 		$this->guard();
-		$scanner = Plugin::instance()->scanner();
-		wp_send_json_success( $scanner->count_secondary_sources() );
+		wp_send_json_success( Plugin::instance()->scanner()->count_secondary_sources() );
 	}
 
 	public function pending_ids(): void {
 		$this->guard();
 		$limit = isset( $_POST['limit'] ) ? max( 1, min( 5000, (int) $_POST['limit'] ) ) : 2000;
-		$ids   = Plugin::instance()->mapping_store()->ids_by_status( 'pending', $limit );
-		wp_send_json_success( [ 'ids' => $ids ] );
+		wp_send_json_success( [
+			'ids' => Plugin::instance()->mapping_store()->ids_by_status( 'pending', $limit ),
+		] );
 	}
 
 	public function import_row(): void {
@@ -72,7 +73,7 @@ class Ajax_Controller {
 		];
 
 		$store = Plugin::instance()->mapping_store();
-		$row   = $store->find_by_id( $id );
+		$row   = $store->get( $id );
 		if ( ! $row ) {
 			wp_send_json_error( [ 'message' => 'row_not_found' ], 404 );
 		}
@@ -86,18 +87,16 @@ class Ajax_Controller {
 			] );
 		}
 
-		if ( ! empty( $row['attachment_id'] ) && in_array( $row['status'], [ 'imported', 'replaced' ], true ) ) {
-			$attachment_id = (int) $row['attachment_id'];
-		} else {
+		$attachment_id = $row->attachment_id();
+		if ( ! $row->is_imported() ) {
 			$result = $importer->import( $row, $opts );
 			if ( is_wp_error( $result ) ) {
 				$store->mark_failed( $id, $result->get_error_message() );
 				wp_send_json_error( [ 'message' => $result->get_error_message() ], 500 );
 			}
-			$attachment_id        = (int) $result['attachment_id'];
-			$row['attachment_id'] = $attachment_id;
-			$row['status']        = 'imported';
+			$attachment_id = (int) $result['attachment_id'];
 			$store->mark_imported( $id, $attachment_id );
+			$row = $store->get( $id );
 		}
 
 		$payload = [
@@ -124,19 +123,17 @@ class Ajax_Controller {
 
 	public function replace_row(): void {
 		$this->guard();
-		$id = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
-
+		$id    = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
 		$store = Plugin::instance()->mapping_store();
-		$row   = $store->find_by_id( $id );
-		if ( ! $row || empty( $row['attachment_id'] ) ) {
+		$row   = $store->get( $id );
+		if ( ! $row || ! $row->is_imported() ) {
 			wp_send_json_error( [ 'message' => 'not_imported_yet' ], 400 );
 		}
 
-		$res = ( new Replacer() )->replace_for_row( $row, (int) $row['attachment_id'] );
+		$res = ( new Replacer() )->replace_for_row( $row, $row->attachment_id() );
 		if ( ! empty( $res['errors'] ) && 0 === (int) $res['posts_updated'] ) {
 			wp_send_json_error( [ 'message' => implode( ' | ', $res['errors'] ) ], 500 );
 		}
-
 		$store->mark_replaced( $id );
 		wp_send_json_success( $res );
 	}
@@ -153,38 +150,28 @@ class Ajax_Controller {
 		wp_send_json_success( $res );
 	}
 
-	public function sr_preview(): void {
+	public function transform_preview(): void {
 		$this->guard();
-		[ $find, $replace, $fields, $update_attachments ] = $this->read_sr_params();
-		if ( '' === $find ) {
-			wp_send_json_error( [ 'message' => 'empty_find' ], 400 );
-		}
-		wp_send_json_success( ( new Search_Replace() )->preview( $find, $fields, $update_attachments ) + [
-			'replace' => $replace,
-		] );
+		wp_send_json_success( ( new Transform() )->preview( $this->read_transform_rule() ) );
 	}
 
-	public function sr_apply(): void {
+	public function transform_apply(): void {
 		$this->guard();
-		[ $find, $replace, $fields, $update_attachments ] = $this->read_sr_params();
-		if ( '' === $find ) {
-			wp_send_json_error( [ 'message' => 'empty_find' ], 400 );
-		}
-		wp_send_json_success(
-			( new Search_Replace() )->apply( $find, $replace, $fields, $update_attachments )
-		);
+		wp_send_json_success( ( new Transform() )->apply( $this->read_transform_rule() ) );
 	}
 
-	/**
-	 * @return array{0:string,1:string,2:string[],3:bool}
-	 */
-	private function read_sr_params(): array {
-		$find    = isset( $_POST['find'] ) ? (string) wp_unslash( $_POST['find'] ) : '';
-		$replace = isset( $_POST['replace'] ) ? (string) wp_unslash( $_POST['replace'] ) : '';
-		$fields  = isset( $_POST['fields'] ) && is_array( $_POST['fields'] )
-			? array_map( 'sanitize_key', (array) wp_unslash( $_POST['fields'] ) )
-			: [];
-		$update_attachments = Util::bool_param( $_POST['update_attachments'] ?? null, true );
-		return [ $find, $replace, $fields, $update_attachments ];
+	private function read_transform_rule(): array {
+		return [
+			'field'              => sanitize_key( (string) ( $_POST['field'] ?? '' ) ),
+			'condition'          => [
+				'type'  => sanitize_key( (string) ( $_POST['condition_type'] ?? '' ) ),
+				'value' => isset( $_POST['condition_value'] ) ? (string) wp_unslash( $_POST['condition_value'] ) : '',
+			],
+			'action'             => [
+				'type'  => sanitize_key( (string) ( $_POST['action_type'] ?? '' ) ),
+				'value' => isset( $_POST['action_value'] ) ? (string) wp_unslash( $_POST['action_value'] ) : '',
+			],
+			'update_attachments' => Util::bool_param( $_POST['update_attachments'] ?? null, true ),
+		];
 	}
 }

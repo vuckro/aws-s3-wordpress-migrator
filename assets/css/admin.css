@@ -1,3 +1,4 @@
+/* --------- Tabs --------- */
 .wks3m-wrap .nav-tab.disabled { pointer-events: none; opacity: .55; }
 .wks3m-wrap .wks3m-pill {
 	display: inline-block;
@@ -10,6 +11,8 @@
 	border-radius: 3px;
 	vertical-align: middle;
 }
+
+/* --------- Panels --------- */
 .wks3m-panel {
 	margin-top: 1.5em;
 	background: #fff;
@@ -17,6 +20,8 @@
 	border: 1px solid #dcdcde;
 	border-radius: 4px;
 }
+
+/* --------- Progress bar (shared scan + bulk) --------- */
 .wks3m-progress { margin: 1em 0; max-width: 620px; }
 .wks3m-progress-bar {
 	position: relative;
@@ -28,9 +33,7 @@
 	overflow: hidden;
 }
 .wks3m-progress-bar span {
-	display: block;
-	height: 100%;
-	width: 0;
+	display: block; height: 100%; width: 0;
 	background: #2271b1;
 	transition: width .3s ease;
 }
@@ -40,26 +43,9 @@
 	font-size: 12px;
 	color: #475569;
 }
-.wks3m-summary { margin: 1em 0; max-width: 820px; }
-.wks3m-results { margin-top: 1.5em; }
-.wks3m-table .wks3m-url {
-	display: inline-block;
-	max-width: 560px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	vertical-align: middle;
-}
-.wks3m-badge {
-	display: inline-block;
-	padding: 2px 8px;
-	border-radius: 10px;
-	font-size: 11px;
-	font-weight: 600;
-}
-.wks3m-badge-new { background: #dcfce7; color: #166534; }
-.wks3m-badge-known { background: #e2e8f0; color: #475569; }
 
+/* --------- Scan tab --------- */
+.wks3m-summary { margin: 1em 0; max-width: 820px; }
 .wks3m-scan-done {
 	margin-top: 1em;
 	padding: 10px 14px;
@@ -67,8 +53,9 @@
 	border-left: 4px solid #10b981;
 	color: #065f46;
 }
+
+/* --------- Queue / History shared --------- */
 .wks3m-queue-filters { margin: .8em 0; }
-.wks3m-import-mode { margin: .8em 0 .4em; }
 .wks3m-bulk-bar {
 	margin: 1em 0 .5em;
 	padding: 10px 14px;
@@ -78,57 +65,55 @@
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: .3em;
+	gap: .3em 1em;
 }
-.wks3m-bulk-bar label { margin-right: 1em; }
+.wks3m-bulk-bar label { margin: 0; }
+.wks3m-bulk-bar-sep { flex-basis: 100%; height: 0; }
 .wks3m-bulk-bar .spinner { margin-left: .5em; }
-.wks3m-bulk-bar-sep {
-	flex-basis: 100%;
-	height: 0;
+
+.wks3m-queue-table img.wks3m-thumb,
+.wks3m-history-table img.wks3m-thumb {
+	width: 56px; height: 56px; object-fit: cover;
+	border-radius: 3px; background: #f3f4f6;
 }
-.wks3m-options-summary {
-	list-style: disc;
-	padding-left: 1.5em;
+.wks3m-url-tiny {
+	font-size: 11px; color: #64748b;
+	display: inline-block; max-width: 320px;
+	overflow: hidden; text-overflow: ellipsis;
+	white-space: nowrap; vertical-align: middle;
 }
-.wks3m-options-summary li {
-	margin-bottom: .4em;
-	color: #475569;
+.wks3m-variants { margin-top: 4px; font-size: 11px; }
+.wks3m-variants a { display: inline-block; margin-right: 6px; color: #64748b; }
+.wks3m-more { color: #64748b; font-size: 11px; }
+
+/* --------- Status pills --------- */
+.wks3m-status {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 10px;
+	font-size: 11px;
+	font-weight: 600;
 }
-.wks3m-sr-results {
+.wks3m-status-pending     { background: #fef3c7; color: #92400e; }
+.wks3m-status-imported    { background: #dcfce7; color: #166534; }
+.wks3m-status-replaced    { background: #dbeafe; color: #1e40af; }
+.wks3m-status-rolled_back { background: #e2e8f0; color: #475569; }
+.wks3m-status-failed      { background: #fee2e2; color: #991b1b; }
+.wks3m-error { color: #991b1b; font-size: 11px; }
+
+/* --------- Settings: Transform rule --------- */
+.wks3m-options-summary { list-style: disc; padding-left: 1.5em; }
+.wks3m-options-summary li { margin-bottom: .4em; color: #475569; }
+.wks3m-tr-results {
 	margin-top: 1em;
 	padding: 10px 14px;
 	background: #f8fafc;
 	border: 1px solid #e2e8f0;
 	border-radius: 4px;
 }
-.wks3m-sr-results mark {
+.wks3m-tr-results mark {
 	background: #fef08a;
 	color: #713f12;
 	padding: 0 2px;
 	border-radius: 2px;
 }
-.wks3m-queue-table img.wks3m-thumb {
-	width: 56px; height: 56px; object-fit: cover; border-radius: 3px; background: #f3f4f6;
-}
-.wks3m-queue-table .wks3m-url-tiny {
-	font-size: 11px; color: #64748b;
-	display: inline-block; max-width: 320px;
-	overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;
-}
-.wks3m-queue-table .wks3m-variants {
-	margin-top: 4px; font-size: 11px;
-}
-.wks3m-queue-table .wks3m-variants a {
-	display: inline-block; margin-right: 6px; color: #64748b;
-}
-.wks3m-queue-table .wks3m-more { color: #64748b; font-size: 11px; }
-.wks3m-status {
-	display: inline-block; padding: 2px 8px; border-radius: 10px;
-	font-size: 11px; font-weight: 600; text-transform: capitalize;
-}
-.wks3m-status-pending { background: #fef3c7; color: #92400e; }
-.wks3m-status-imported { background: #dcfce7; color: #166534; }
-.wks3m-status-failed { background: #fee2e2; color: #991b1b; }
-.wks3m-status-replaced { background: #dbeafe; color: #1e40af; }
-.wks3m-status-rolled_back { background: #e2e8f0; color: #475569; }
-.wks3m-error { color: #991b1b; font-size: 11px; }

@@ -1,6 +1,6 @@
 <?php
 /**
- * Rollback Manager — restores post_content from backups and optionally deletes
+ * Rollback_Manager — restores post_content from backups, optionally deletes
  * the attachment created during migration.
  *
  * @package WaasKitS3Migrator
@@ -21,33 +21,22 @@ class Rollback_Manager {
 	}
 
 	/**
-	 * Roll back a migration-log row.
-	 *
 	 * @return array{posts_restored:int,attachment_deleted:bool,errors:string[]}
 	 */
 	public function rollback( int $row_id, bool $delete_attachment = false ): array {
-		$row = $this->store->find_by_id( $row_id );
+		$row = $this->store->get( $row_id );
 		if ( ! $row ) {
 			return [ 'posts_restored' => 0, 'attachment_deleted' => false, 'errors' => [ 'row_not_found' ] ];
 		}
+
 		$res = $this->replacer->rollback_row( $row );
 
 		$attachment_deleted = false;
-		if ( $delete_attachment && ! empty( $row['attachment_id'] ) ) {
-			$deleted = wp_delete_attachment( (int) $row['attachment_id'], true );
-			$attachment_deleted = (bool) $deleted;
+		if ( $delete_attachment && $row->attachment_id() > 0 ) {
+			$attachment_deleted = (bool) wp_delete_attachment( $row->attachment_id(), true );
 		}
 
-		global $wpdb;
-		$wpdb->update(
-			$this->store->table(),
-			[
-				'status'         => 'rolled_back',
-				'rolled_back_at' => current_time( 'mysql' ),
-				'attachment_id'  => $attachment_deleted ? null : ( $row['attachment_id'] ?? null ),
-			],
-			[ 'id' => $row_id ]
-		);
+		$this->store->mark_rolled_back( $row_id, $attachment_deleted );
 
 		return [
 			'posts_restored'     => (int) $res['posts_restored'],

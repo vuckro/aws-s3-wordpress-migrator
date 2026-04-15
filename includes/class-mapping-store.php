@@ -1,6 +1,9 @@
 <?php
 /**
- * Mapping store — read/write access to the migration log table.
+ * Mapping_Store — read/write access to the migration log table.
+ *
+ * Returns Migration_Row value objects for single-row lookups so callers don't
+ * have to juggle raw arrays.
  *
  * @package WaasKitS3Migrator
  */
@@ -15,24 +18,23 @@ class Mapping_Store {
 		return Activator::table_name();
 	}
 
-	public function find_by_base_url( string $base_url ): ?array {
+	/** @return Migration_Row|null */
+	public function get( int $id ): ?Migration_Row {
 		global $wpdb;
-		$table = $this->table();
-		$row   = $wpdb->get_row(
-			$wpdb->prepare( "SELECT * FROM {$table} WHERE source_url_base = %s LIMIT 1", $base_url ),
+		$row = $wpdb->get_row(
+			$wpdb->prepare( "SELECT * FROM {$this->table()} WHERE id = %d", $id ),
 			ARRAY_A
 		);
-		return $row ?: null;
+		return Migration_Row::from_array( $row ?: null );
 	}
 
-	public function find_by_id( int $id ): ?array {
+	public function find_by_base_url( string $base_url ): ?Migration_Row {
 		global $wpdb;
-		$table = $this->table();
-		$row   = $wpdb->get_row(
-			$wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $id ),
+		$row = $wpdb->get_row(
+			$wpdb->prepare( "SELECT * FROM {$this->table()} WHERE source_url_base = %s LIMIT 1", $base_url ),
 			ARRAY_A
 		);
-		return $row ?: null;
+		return Migration_Row::from_array( $row ?: null );
 	}
 
 	public function is_known( string $base_url ): bool {
@@ -40,9 +42,8 @@ class Mapping_Store {
 	}
 
 	/**
-	 * Paginated fetch for the Queue tab.
+	 * Paginated fetch for the Queue / History tables.
 	 *
-	 * @param array{status?:string,host?:string,search?:string,per_page?:int,page?:int} $args
 	 * @return array{items:array[],total:int,pages:int,page:int,per_page:int}
 	 */
 	public function list( array $args = [] ): array {
@@ -66,18 +67,19 @@ class Mapping_Store {
 		if ( ! empty( $args['search'] ) ) {
 			$like     = '%' . $wpdb->esc_like( (string) $args['search'] ) . '%';
 			$where[]  = '(base_key LIKE %s OR derived_title LIKE %s OR alt_text LIKE %s)';
-			$params[] = $like; $params[] = $like; $params[] = $like;
+			array_push( $params, $like, $like, $like );
 		}
 		$where_sql = $where ? ( 'WHERE ' . implode( ' AND ', $where ) ) : '';
 
-		$total_sql = "SELECT COUNT(*) FROM {$table} {$where_sql}";
-		$total     = $params
-			? (int) $wpdb->get_var( $wpdb->prepare( $total_sql, ...$params ) )
-			: (int) $wpdb->get_var( $total_sql );
+		$total = $params
+			? (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} {$where_sql}", ...$params ) )
+			: (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} {$where_sql}" );
 
-		$list_sql = "SELECT * FROM {$table} {$where_sql} ORDER BY id DESC LIMIT %d OFFSET %d";
-		$items    = $wpdb->get_results(
-			$wpdb->prepare( $list_sql, ...array_merge( $params, [ $per_page, $offset ] ) ),
+		$items = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT * FROM {$table} {$where_sql} ORDER BY id DESC LIMIT %d OFFSET %d",
+				...array_merge( $params, [ $per_page, $offset ] )
+			),
 			ARRAY_A
 		);
 
@@ -92,29 +94,37 @@ class Mapping_Store {
 
 	public function distinct_hosts(): array {
 		global $wpdb;
-		$table = $this->table();
-		$rows  = $wpdb->get_col( "SELECT DISTINCT source_host FROM {$table} WHERE source_host IS NOT NULL ORDER BY source_host ASC" );
+		$rows = $wpdb->get_col(
+			"SELECT DISTINCT source_host FROM {$this->table()}
+			 WHERE source_host IS NOT NULL ORDER BY source_host ASC"
+		);
 		return array_values( array_filter( (array) $rows ) );
 	}
 
+	/** @return array<string,int> */
 	public function counts_by_status(): array {
 		global $wpdb;
-		$table = $this->table();
-		$out   = [
-			'pending'     => 0,
-			'imported'    => 0,
-			'replaced'    => 0,
-			'rolled_back' => 0,
-			'failed'      => 0,
-		];
-		$rows  = $wpdb->get_results( "SELECT status, COUNT(*) AS n FROM {$table} GROUP BY status", ARRAY_A );
-		foreach ( (array) $rows as $r ) {
+		$out = [ 'pending' => 0, 'imported' => 0, 'replaced' => 0, 'rolled_back' => 0, 'failed' => 0 ];
+		foreach ( (array) $wpdb->get_results( "SELECT status, COUNT(*) AS n FROM {$this->table()} GROUP BY status", ARRAY_A ) as $r ) {
 			$key = (string) $r['status'];
 			if ( isset( $out[ $key ] ) ) {
 				$out[ $key ] = (int) $r['n'];
 			}
 		}
 		return $out;
+	}
+
+	/** @return int[] */
+	public function ids_by_status( string $status, int $limit = 100 ): array {
+		global $wpdb;
+		$rows = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT id FROM {$this->table()} WHERE status = %s ORDER BY id ASC LIMIT %d",
+				$status,
+				max( 1, $limit )
+			)
+		);
+		return array_map( 'intval', (array) $rows );
 	}
 
 	public function mark_imported( int $id, int $attachment_id ): void {
@@ -125,19 +135,6 @@ class Mapping_Store {
 				'status'        => 'imported',
 				'attachment_id' => $attachment_id,
 				'error_message' => null,
-				'replaced_at'   => null,
-			],
-			[ 'id' => $id ]
-		);
-	}
-
-	public function mark_failed( int $id, string $error ): void {
-		global $wpdb;
-		$wpdb->update(
-			$this->table(),
-			[
-				'status'        => 'failed',
-				'error_message' => $error,
 			],
 			[ 'id' => $id ]
 		);
@@ -155,21 +152,27 @@ class Mapping_Store {
 		);
 	}
 
-	/**
-	 * Return IDs of rows in a given status, oldest first.
-	 *
-	 * @return int[]
-	 */
-	public function ids_by_status( string $status, int $limit = 100 ): array {
+	public function mark_failed( int $id, string $error ): void {
 		global $wpdb;
-		$table = $this->table();
-		$rows  = $wpdb->get_col(
-			$wpdb->prepare(
-				"SELECT id FROM {$table} WHERE status = %s ORDER BY id ASC LIMIT %d",
-				$status,
-				max( 1, $limit )
-			)
+		$wpdb->update(
+			$this->table(),
+			[
+				'status'        => 'failed',
+				'error_message' => $error,
+			],
+			[ 'id' => $id ]
 		);
-		return array_map( 'intval', (array) $rows );
+	}
+
+	public function mark_rolled_back( int $id, bool $attachment_deleted ): void {
+		global $wpdb;
+		$payload = [
+			'status'         => 'rolled_back',
+			'rolled_back_at' => current_time( 'mysql' ),
+		];
+		if ( $attachment_deleted ) {
+			$payload['attachment_id'] = null;
+		}
+		$wpdb->update( $this->table(), $payload, [ 'id' => $id ] );
 	}
 }

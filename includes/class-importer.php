@@ -1,7 +1,7 @@
 <?php
 /**
- * Importer — takes a downloaded file + metadata and creates a Media Library
- * attachment with alt, title and derived caption.
+ * Importer — downloads a remote image, inserts it in the Media Library, and
+ * writes alt/title/source metadata.
  *
  * @package WaasKitS3Migrator
  */
@@ -22,14 +22,15 @@ class Importer {
 	}
 
 	/**
-	 * Return the (title, alt) pair to use for a given row, applying user options.
+	 * Resolve the (title, alt) values to write, honouring the two optional
+	 * options exposed on the Queue tab.
 	 *
 	 * @param array{use_alt_as_title?:bool,fill_empty_alts?:bool} $opts
 	 * @return array{0:string,1:string} [title, alt]
 	 */
-	public static function resolve_title_and_alt( array $row, array $opts = [] ): array {
-		$alt   = trim( (string) ( $row['alt_text'] ?? '' ) );
-		$title = trim( (string) ( $row['derived_title'] ?? '' ) );
+	public static function resolve_title_and_alt( Migration_Row $row, array $opts = [] ): array {
+		$alt   = $row->alt_text();
+		$title = $row->derived_title();
 
 		if ( ! empty( $opts['use_alt_as_title'] ) && '' !== $alt ) {
 			$title = $alt;
@@ -41,34 +42,31 @@ class Importer {
 	}
 
 	/**
-	 * Dry-run: report what would happen without touching the filesystem or DB.
+	 * Simulate an import — returns what would be written. No side effects.
 	 */
-	public function dry_run( array $row, array $opts = [] ): array {
-		$variants          = Util::decode_json_list( $row['source_url_variants'] ?? '' );
-		[ $title, $alt ]   = self::resolve_title_and_alt( $row, $opts );
-		$source            = $this->pick_best_variant( $variants );
+	public function dry_run( Migration_Row $row, array $opts = [] ): array {
+		$source          = $row->best_variant();
+		[ $title, $alt ] = self::resolve_title_and_alt( $row, $opts );
 		return [
 			'source_url'    => $source,
-			'would_save_as' => sanitize_file_name( basename( parse_url( $source, PHP_URL_PATH ) ?: '' ) ),
+			'would_save_as' => sanitize_file_name( Url_Helper::base_key( $source, Settings::strip_strapi_prefixes() ) ),
 			'post_title'    => $title,
 			'alt_text'      => $alt,
 		];
 	}
 
 	/**
-	 * Perform a real import for a single migration log row.
+	 * Perform a real import.
 	 *
-	 * @param array{use_alt_as_title?:bool,fill_empty_alts?:bool} $opts
 	 * @return array{attachment_id:int,attachment_url:string}|\WP_Error
 	 */
-	public function import( array $row, array $opts = [] ) {
-		$variants = Util::decode_json_list( $row['source_url_variants'] ?? '' );
-		if ( empty( $variants ) ) {
+	public function import( Migration_Row $row, array $opts = [] ) {
+		$source = $row->best_variant();
+		if ( '' === $source ) {
 			return new \WP_Error( 'wks3m_no_url', 'No source URL stored for this row.' );
 		}
 
-		$source = $this->pick_best_variant( $variants );
-		$file   = $this->downloader->download( $source );
+		$file = $this->downloader->download( $source );
 		if ( is_wp_error( $file ) ) {
 			Logger::error( 'Download failed', [ 'url' => $source, 'err' => $file->get_error_message() ] );
 			return $file;
@@ -106,8 +104,8 @@ class Importer {
 			update_post_meta( $attach_id, '_wp_attachment_image_alt', $alt );
 		}
 		update_post_meta( $attach_id, self::META_SOURCE_URL, $source );
-		if ( ! empty( $row['source_host'] ) ) {
-			update_post_meta( $attach_id, self::META_SOURCE_HOST, (string) $row['source_host'] );
+		if ( '' !== $row->source_host() ) {
+			update_post_meta( $attach_id, self::META_SOURCE_HOST, $row->source_host() );
 		}
 
 		Logger::info( 'Imported attachment', [ 'id' => $attach_id, 'source' => $source ] );
@@ -116,26 +114,5 @@ class Importer {
 			'attachment_id'  => (int) $attach_id,
 			'attachment_url' => (string) wp_get_attachment_url( $attach_id ),
 		];
-	}
-
-	/**
-	 * Prefer the largest variant (large_ first, then any unprefixed, else first).
-	 */
-	private function pick_best_variant( array $variants ): string {
-		foreach ( $variants as $v ) {
-			if ( 0 === strpos( basename( (string) parse_url( $v, PHP_URL_PATH ) ), 'large_' ) ) {
-				return $v;
-			}
-		}
-		foreach ( $variants as $v ) {
-			$name = basename( (string) parse_url( $v, PHP_URL_PATH ) );
-			if ( 0 !== strpos( $name, 'medium_' )
-				&& 0 !== strpos( $name, 'small_' )
-				&& 0 !== strpos( $name, 'thumbnail_' )
-			) {
-				return $v;
-			}
-		}
-		return (string) $variants[0];
 	}
 }

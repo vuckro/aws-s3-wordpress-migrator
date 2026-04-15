@@ -23,13 +23,12 @@ class Downloader {
 
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 
-		// Give the download a bit of headroom on slow connections.
 		$tmp = download_url( $url, 60 );
 		if ( is_wp_error( $tmp ) ) {
 			return $tmp;
 		}
 
-		$filename = $this->sanitize_filename( $url );
+		$filename = $this->preferred_filename( $url );
 		$filetype = wp_check_filetype_and_ext( $tmp, $filename );
 		if ( empty( $filetype['type'] ) ) {
 			@unlink( $tmp );
@@ -61,21 +60,9 @@ class Downloader {
 		];
 	}
 
-	/**
-	 * Extract a safe filename from a remote URL, stripping Strapi size prefixes
-	 * when configured to do so.
-	 */
-	private function sanitize_filename( string $url ): string {
-		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
-		$name = basename( $path );
-		if ( Settings::strip_strapi_prefixes() ) {
-			foreach ( Settings::STRAPI_SIZE_PREFIXES as $prefix ) {
-				if ( 0 === strpos( $name, $prefix ) ) {
-					$name = substr( $name, strlen( $prefix ) );
-					break;
-				}
-			}
-		}
+	/** Strip Strapi size prefix when configured, then sanitize. */
+	private function preferred_filename( string $url ): string {
+		$name = Url_Helper::base_key( $url, Settings::strip_strapi_prefixes() );
 		return sanitize_file_name( $name );
 	}
 }
