@@ -1,12 +1,13 @@
 <?php
 /**
  * Plugin Name:       AWS S3 WordPress Migrator
- * Plugin URI:        https://github.com/
- * Description:       Scanne, télécharge et importe dans la Media Library les images hébergées sur AWS S3, avec validation manuelle et rollback réversible.
+ * Plugin URI:        https://github.com/waakit/aws-s3-wordpress-migrator
+ * Description:       Scanne les images hébergées sur un bucket AWS S3, les télécharge dans la Media Library WordPress avec leurs métadonnées SEO (alt, titre), remplace les URLs dans le contenu et garde un log réversible de chaque migration.
  * Version:           0.1.0-phase1
  * Requires at least: 6.0
  * Requires PHP:      8.1
  * Author:            WaaKit
+ * Author URI:        https://github.com/waakit
  * License:           GPL-2.0-or-later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       claireexplore-s3-migrator

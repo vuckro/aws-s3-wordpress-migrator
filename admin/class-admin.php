@@ -80,11 +80,15 @@ class Admin {
 				</a>
 				<a href="#" class="nav-tab disabled" aria-disabled="true">
 					<?php esc_html_e( 'File d\'attente', 'claireexplore-s3-migrator' ); ?>
-					<span class="cxs3m-pill"><?php esc_html_e( 'Phase 2', 'claireexplore-s3-migrator' ); ?></span>
+					<span class="cxs3m-pill"><?php esc_html_e( 'Phases 2 & 3', 'claireexplore-s3-migrator' ); ?></span>
 				</a>
 				<a href="#" class="nav-tab disabled" aria-disabled="true">
-					<?php esc_html_e( 'Historique', 'claireexplore-s3-migrator' ); ?>
+					<?php esc_html_e( 'Historique & Rollback', 'claireexplore-s3-migrator' ); ?>
 					<span class="cxs3m-pill"><?php esc_html_e( 'Phase 4', 'claireexplore-s3-migrator' ); ?></span>
+				</a>
+				<a href="#" class="nav-tab disabled" aria-disabled="true">
+					<?php esc_html_e( 'Réglages', 'claireexplore-s3-migrator' ); ?>
+					<span class="cxs3m-pill"><?php esc_html_e( 'Phase 5', 'claireexplore-s3-migrator' ); ?></span>
 				</a>
 			</nav>
 			<?php
