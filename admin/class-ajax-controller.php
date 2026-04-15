@@ -2,27 +2,27 @@
 /**
  * AJAX handlers (read-only for Phase 1).
  *
- * @package ClaireexploreS3Migrator
+ * @package WaasKitS3Migrator
  */
 
-namespace CXS3M\Admin;
+namespace WKS3M\Admin;
 
-use CXS3M\Plugin;
+use WKS3M\Plugin;
 
 defined( 'ABSPATH' ) || exit;
 
 class Ajax_Controller {
 
 	public function register(): void {
-		add_action( 'wp_ajax_cxs3m_scan_batch', [ $this, 'scan_batch' ] );
-		add_action( 'wp_ajax_cxs3m_scan_secondary', [ $this, 'scan_secondary' ] );
+		add_action( 'wp_ajax_wks3m_scan_batch', [ $this, 'scan_batch' ] );
+		add_action( 'wp_ajax_wks3m_scan_secondary', [ $this, 'scan_secondary' ] );
 	}
 
 	private function guard(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_send_json_error( [ 'message' => 'forbidden' ], 403 );
 		}
-		check_ajax_referer( 'cxs3m_action', 'nonce' );
+		check_ajax_referer( 'wks3m_action', 'nonce' );
 	}
 
 	public function scan_batch(): void {
@@ -34,7 +34,6 @@ class Ajax_Controller {
 		$scanner = Plugin::instance()->scanner();
 		$result  = $scanner->scan_posts_batch( $offset, $limit );
 
-		// Flag "already known" against the mapping store.
 		$store = Plugin::instance()->mapping_store();
 		foreach ( $result['matches'] as $key => &$m ) {
 			$m['already_known'] = $store->is_known( $key );

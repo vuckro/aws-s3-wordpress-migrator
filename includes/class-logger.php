@@ -2,10 +2,10 @@
 /**
  * Simple logger wrapper.
  *
- * @package ClaireexploreS3Migrator
+ * @package WaasKitS3Migrator
  */
 
-namespace CXS3M;
+namespace WKS3M;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -27,7 +27,7 @@ class Logger {
 	}
 
 	private static function write( string $level, string $message, array $context ): void {
-		$line = sprintf( '[CXS3M][%s] %s', $level, $message );
+		$line = sprintf( '[WKS3M][%s] %s', $level, $message );
 		if ( ! empty( $context ) ) {
 			$line .= ' ' . wp_json_encode( $context );
 		}

@@ -2,10 +2,10 @@
 /**
  * Plugin bootstrap singleton.
  *
- * @package ClaireexploreS3Migrator
+ * @package WaasKitS3Migrator
  */
 
-namespace CXS3M;
+namespace WKS3M;
 
 defined( 'ABSPATH' ) || exit;
 
@@ -25,14 +25,14 @@ class Plugin {
 		}
 		$this->booted = true;
 
-		// Safety-net: if the plugin was installed before the table existed, try to create it.
+		// Safety-net: upgrade the schema if needed.
 		if ( is_admin() && get_option( Activator::TABLE_VERSION_OPTION ) !== Activator::CURRENT_DB_VERSION ) {
 			Activator::install_table();
 		}
 
 		if ( is_admin() ) {
-			( new \CXS3M\Admin\Admin() )->register();
-			( new \CXS3M\Admin\Ajax_Controller() )->register();
+			( new \WKS3M\Admin\Admin() )->register();
+			( new \WKS3M\Admin\Ajax_Controller() )->register();
 			add_filter( 'plugin_row_meta', [ $this, 'open_plugin_site_in_new_tab' ], 10, 2 );
 		}
 	}
@@ -41,14 +41,13 @@ class Plugin {
 	 * Force the "Visit plugin site" link on the Plugins list to open in a new tab.
 	 */
 	public function open_plugin_site_in_new_tab( array $links, string $plugin_file ): array {
-		if ( plugin_basename( CXS3M_PLUGIN_FILE ) !== $plugin_file ) {
+		if ( plugin_basename( WKS3M_PLUGIN_FILE ) !== $plugin_file ) {
 			return $links;
 		}
 		foreach ( $links as $i => $link ) {
 			if ( false !== strpos( $link, 'plugin-install.php' ) ) {
 				continue;
 			}
-			// Match any <a> that doesn't already have a target attribute.
 			if ( false !== strpos( $link, '<a ' ) && false === strpos( $link, 'target=' ) ) {
 				$links[ $i ] = str_replace( '<a ', '<a target="_blank" rel="noopener noreferrer" ', $link );
 			}
