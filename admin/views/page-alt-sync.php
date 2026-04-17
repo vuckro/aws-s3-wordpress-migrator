@@ -9,20 +9,19 @@ defined( 'ABSPATH' ) || exit;
 
 use WKS3M\Admin\View_Helper;
 use WKS3M\Alt_Diff;
+use WKS3M\Alt_Scanner;
 use WKS3M\Plugin;
 
 $alt_store  = Plugin::instance()->alt_diff_store();
-$alt_search = isset( $_GET['s'] ) ? sanitize_text_field( (string) $_GET['s'] ) : '';
-$alt_errors = ! empty( $_GET['errors'] );
-$alt_paged  = isset( $_GET['paged'] ) ? max( 1, (int) $_GET['paged'] ) : 1;
-
-$alt_data   = $alt_store->list( [
-	'search'      => $alt_search,
-	'errors_only' => $alt_errors,
-	'page'        => $alt_paged,
-	'per_page'    => 25,
-] );
 $alt_counts = $alt_store->counts();
+
+$missing_att_ids = array_map( 'intval', (array) get_option( Alt_Scanner::OPT_MISSING_ALT, [] ) );
+$missing_total   = count( $missing_att_ids );
+
+$section = isset( $_GET['section'] ) ? sanitize_key( (string) $_GET['section'] ) : 'divergences';
+if ( ! in_array( $section, [ 'divergences', 'missing' ], true ) ) {
+	$section = 'divergences';
+}
 ?>
 
 <div class="wks3m-panel">
@@ -53,11 +52,37 @@ $alt_counts = $alt_store->counts();
 				<tr><th scope="row"><?php esc_html_e( 'Balises <img> examinées', 'waaskit-s3-migrator' ); ?></th><td class="imgs">0</td></tr>
 				<tr><th scope="row"><?php esc_html_e( 'Divergences détectées', 'waaskit-s3-migrator' ); ?></th><td class="diffs">0</td></tr>
 				<tr><th scope="row"><?php esc_html_e( 'Images non résolues', 'waaskit-s3-migrator' ); ?><br><small class="description"><?php esc_html_e( 'src qui ne matche aucun attachment — soit image orpheline, soit hors périmètre.', 'waaskit-s3-migrator' ); ?></small></th><td class="unresolved">0</td></tr>
+				<tr><th scope="row"><?php esc_html_e( 'Images sans ALT en Bibliothèque', 'waaskit-s3-migrator' ); ?><br><small class="description"><?php esc_html_e( 'utilisées dans un contenu sans alt côté HTML — à éditer en Bibliothèque.', 'waaskit-s3-migrator' ); ?></small></th><td class="missing-alt">0</td></tr>
 			</tbody>
 		</table>
 	</div>
 </div>
 
+<ul class="subsubsub wks3m-subfilter">
+	<li>
+		<a href="<?php echo esc_url( View_Helper::tab_url( 'alt-sync' ) ); ?>" class="<?php echo 'divergences' === $section ? 'current' : ''; ?>">
+			<?php esc_html_e( 'Divergences', 'waaskit-s3-migrator' ); ?>
+			<span class="count">(<?php echo (int) $alt_counts['total']; ?>)</span>
+		</a> |
+	</li>
+	<li>
+		<a href="<?php echo esc_url( View_Helper::tab_url( 'alt-sync', [ 'section' => 'missing' ] ) ); ?>" class="<?php echo 'missing' === $section ? 'current' : ''; ?>">
+			<?php esc_html_e( 'Images sans ALT en Bibliothèque', 'waaskit-s3-migrator' ); ?>
+			<span class="count">(<?php echo (int) $missing_total; ?>)</span>
+		</a>
+	</li>
+</ul>
+<div style="clear:both"></div>
+
+<?php if ( 'divergences' === $section ) :
+	$alt_errors = ! empty( $_GET['errors'] );
+	$alt_paged  = isset( $_GET['paged'] ) ? max( 1, (int) $_GET['paged'] ) : 1;
+	$alt_data   = $alt_store->list( [
+		'errors_only' => $alt_errors,
+		'page'        => $alt_paged,
+		'per_page'    => 25,
+	] );
+?>
 <div class="wks3m-panel">
 	<h2><?php esc_html_e( 'Divergences', 'waaskit-s3-migrator' ); ?></h2>
 
@@ -171,3 +196,81 @@ $alt_counts = $alt_store->counts();
 		?>
 	<?php endif; ?>
 </div>
+
+<?php else :
+	$missing_page     = isset( $_GET['missing_page'] ) ? max( 1, (int) $_GET['missing_page'] ) : 1;
+	$missing_per_page = 50;
+	$missing_pages    = (int) ceil( $missing_total / $missing_per_page );
+	$missing_slice    = array_slice( $missing_att_ids, ( $missing_page - 1 ) * $missing_per_page, $missing_per_page );
+?>
+<div class="wks3m-panel">
+	<h2><?php printf( esc_html__( 'Images sans ALT en Bibliothèque (%d)', 'waaskit-s3-migrator' ), (int) $missing_total ); ?></h2>
+	<?php if ( empty( $missing_att_ids ) ) : ?>
+		<p><?php esc_html_e( 'Rien à signaler. Lance un scan au-dessus pour repérer les attachments sans ALT.', 'waaskit-s3-migrator' ); ?></p>
+	<?php else : ?>
+		<p class="description">
+			<?php esc_html_e( 'Ces attachments sont utilisés dans au moins un <img> sans alt côté contenu, et n\'ont pas non plus d\'ALT en Bibliothèque. "Utiliser le titre comme ALT" copie le post_title de l\'attachment dans le champ ALT — rapide pour rattraper les images en masse. Relance un scan après pour que la synchro pousse la nouvelle valeur dans le HTML des articles.', 'waaskit-s3-migrator' ); ?>
+		</p>
+		<div class="wks3m-bulk-bar">
+			<button type="button" class="button button-primary" id="wks3m-alt-fill-all">
+				<?php printf( esc_html__( 'Utiliser le titre comme ALT (%d)', 'waaskit-s3-migrator' ), (int) $missing_total ); ?>
+			</button>
+			<button type="button" class="button" id="wks3m-alt-fill-stop" hidden><?php esc_html_e( 'Stop', 'waaskit-s3-migrator' ); ?></button>
+			<span class="spinner" id="wks3m-alt-fill-spinner" style="float:none;"></span>
+		</div>
+		<div id="wks3m-alt-fill-progress" class="wks3m-progress" hidden>
+			<div class="wks3m-progress-bar"><span></span></div>
+			<p class="wks3m-progress-label"></p>
+		</div>
+		<table class="widefat striped">
+			<thead>
+				<tr>
+					<th style="width:72px"><?php esc_html_e( 'Aperçu', 'waaskit-s3-migrator' ); ?></th>
+					<th><?php esc_html_e( 'Attachment', 'waaskit-s3-migrator' ); ?></th>
+					<th style="width:320px"><?php esc_html_e( 'Action', 'waaskit-s3-migrator' ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $missing_slice as $att_id ) :
+					$att = get_post( $att_id );
+					if ( ! $att ) { continue; }
+					$title = trim( (string) $att->post_title );
+				?>
+					<tr data-missing-id="<?php echo (int) $att_id; ?>">
+						<td><?php echo View_Helper::thumb_html( $att_id ); ?></td>
+						<td>
+							<strong>#<?php echo (int) $att_id; ?></strong> — <?php echo esc_html( $title ?: '(sans titre)' ); ?>
+							<br>
+							<code class="wks3m-url-tiny"><?php echo esc_html( basename( (string) get_attached_file( $att_id ) ) ); ?></code>
+						</td>
+						<td>
+							<?php if ( '' !== $title ) : ?>
+								<button type="button" class="button button-primary wks3m-alt-fill-btn" data-id="<?php echo (int) $att_id; ?>">
+									<?php esc_html_e( 'Utiliser le titre comme ALT', 'waaskit-s3-migrator' ); ?>
+								</button>
+							<?php endif; ?>
+							<a class="button button-link" href="<?php echo esc_url( admin_url( 'post.php?post=' . (int) $att_id . '&action=edit' ) ); ?>" target="_blank">
+								<?php esc_html_e( 'Éditer', 'waaskit-s3-migrator' ); ?>
+							</a>
+						</td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php
+		if ( $missing_pages > 1 ) {
+			echo '<div class="tablenav bottom"><div class="tablenav-pages">';
+			echo paginate_links( [
+				'base'      => add_query_arg( [ 'section' => 'missing', 'missing_page' => '%#%' ] ),
+				'format'    => '',
+				'total'     => $missing_pages,
+				'current'   => $missing_page,
+				'prev_text' => '‹',
+				'next_text' => '›',
+			] );
+			echo '</div></div>';
+		}
+		?>
+	<?php endif; ?>
+</div>
+<?php endif; ?>

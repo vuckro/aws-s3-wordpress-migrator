@@ -44,10 +44,14 @@ class Alt_Syncer {
 			return [ 'tags_updated' => 0, 'library_alt' => '', 'library_title' => '', 'errors' => [ 'post_not_found' ] ];
 		}
 
-		$library_alt   = trim( (string) get_post_meta( $att_id, '_wp_attachment_image_alt', true ) );
-		$library_title = trim( (string) get_the_title( $att_id ) );
+		// Use the values stored at scan time — the scanner already applied
+		// the filename-filter, alt↔title cross-fill, and content_alt fallback
+		// when the library is empty. Re-deriving here would lose the fallback
+		// (content state not in scope) and let filename-derived titles leak.
+		// If the user edits the library, a rescan refreshes these.
+		$library_alt   = $diff->library_alt();
+		$library_title = $diff->library_title();
 
-		// Skip rows where the library has nothing useful to push.
 		if ( '' === $library_alt && '' === $library_title ) {
 			$this->store->mark_failed( $diff->id(), 'library_empty' );
 			return [ 'tags_updated' => 0, 'library_alt' => '', 'library_title' => '', 'errors' => [ 'library_empty' ] ];

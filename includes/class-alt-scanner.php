@@ -26,6 +26,71 @@ defined( 'ABSPATH' ) || exit;
 
 class Alt_Scanner {
 
+	/** Option storing attachment IDs used in content whose library ALT is empty. */
+	public const OPT_MISSING_ALT = 'wks3m_missing_alt_attachments';
+
+	/**
+	 * Copy an attachment's post_title into its `_wp_attachment_image_alt`
+	 * postmeta, and drop the attachment from OPT_MISSING_ALT so it disappears
+	 * from the "Images sans ALT" panel. Returns the alt that was written, or
+	 * empty string on no-op (empty title / not an attachment).
+	 *
+	 * Does NOT update post_content — a rescan + normal sync is still needed
+	 * to push the new alt into <img> tags.
+	 */
+	/**
+	 * Library ALT + TITLE to push to content, with filtering + cross-fill.
+	 *
+	 * 1. Read raw ALT (postmeta) and TITLE (post_title).
+	 * 2. Drop filename-derived TITLEs (noise like "DSC_1234", "Img 4567").
+	 * 3. Cross-fill library alt↔title so both <img> attributes get populated.
+	 * 4. Last resort: when both library sides are empty, fall back to
+	 *    $content_alt_fallback so pages that already have an <img alt> set
+	 *    inline (legacy blocks, Yoast auto-fill, etc.) still get a matching
+	 *    <img title> synced without requiring a manual Bibliothèque edit.
+	 *
+	 * Shared by the scanner (divergence detection) and the syncer (apply) —
+	 * keeping both in lockstep avoids filename-derived titles leaking back
+	 * into content.
+	 *
+	 * @return array{0:string,1:string} [library_alt, library_title]
+	 */
+	public static function library_values( int $attachment_id, string $src, string $content_alt_fallback = '' ): array {
+		$alt   = trim( (string) get_post_meta( $attachment_id, '_wp_attachment_image_alt', true ) );
+		$title = trim( (string) get_the_title( $attachment_id ) );
+
+		if ( '' !== $title && self::title_looks_like_filename( $title, $src ) ) {
+			$title = '';
+		}
+
+		if ( '' === $alt   && '' !== $title ) { $alt   = $title; }
+		if ( '' === $title && '' !== $alt )   { $title = $alt; }
+
+		if ( '' === $alt && '' === $title && '' !== $content_alt_fallback ) {
+			$alt = $title = $content_alt_fallback;
+		}
+
+		return [ $alt, $title ];
+	}
+
+	public static function fill_alt_from_title( int $attachment_id ): string {
+		$att = get_post( $attachment_id );
+		if ( ! $att || 'attachment' !== $att->post_type ) {
+			return '';
+		}
+		$title = trim( (string) $att->post_title );
+		if ( '' === $title ) {
+			return '';
+		}
+		update_post_meta( $attachment_id, '_wp_attachment_image_alt', $title );
+
+		$missing = array_map( 'intval', (array) get_option( self::OPT_MISSING_ALT, [] ) );
+		$missing = array_values( array_diff( $missing, [ $attachment_id ] ) );
+		update_option( self::OPT_MISSING_ALT, $missing, false );
+
+		return $title;
+	}
+
 	private Alt_Diff_Store $store;
 
 	public function __construct( ?Alt_Diff_Store $store = null ) {
@@ -35,13 +100,21 @@ class Alt_Scanner {
 	/**
 	 * Scan a batch of posts with `<img>` in their content.
 	 *
+	 * Side effect: updates OPT_MISSING_ALT with attachment IDs whose library
+	 * ALT is empty AND whose content alt is also empty — images that need a
+	 * human to fill the ALT field in Média → Bibliothèque. Reset on offset=0.
+	 *
 	 * @return array{
 	 *     processed:int, total:int, next_offset:int,
-	 *     imgs_scanned:int, diffs_found:int, unresolved:int
+	 *     imgs_scanned:int, diffs_found:int, unresolved:int, missing_alt:int
 	 * }
 	 */
 	public function scan_batch( int $offset = 0, int $limit = 50 ): array {
 		global $wpdb;
+
+		if ( 0 === $offset ) {
+			update_option( self::OPT_MISSING_ALT, [], false );
+		}
 
 		$total = (int) $wpdb->get_var(
 			"SELECT COUNT(*) FROM {$wpdb->posts}
@@ -64,18 +137,29 @@ class Alt_Scanner {
 			ARRAY_A
 		);
 
-		$url_index    = $this->variant_index();
-		$processed    = 0;
-		$imgs_scanned = 0;
-		$diffs_found  = 0;
-		$unresolved   = 0;
+		$url_index      = $this->variant_index();
+		$processed      = 0;
+		$imgs_scanned   = 0;
+		$diffs_found    = 0;
+		$unresolved     = 0;
+		$missing_batch  = [];
 
 		foreach ( (array) $rows as $r ) {
 			$processed++;
-			[ $imgs, $diffs, $unres ] = $this->scan_post( (int) $r['ID'], (string) $r['post_content'], $url_index );
-			$imgs_scanned    += $imgs;
-			$diffs_found     += $diffs;
-			$unresolved      += $unres;
+			[ $imgs, $diffs, $unres, $missing_in_post ] = $this->scan_post( (int) $r['ID'], (string) $r['post_content'], $url_index );
+			$imgs_scanned += $imgs;
+			$diffs_found  += $diffs;
+			$unresolved   += $unres;
+			foreach ( $missing_in_post as $att ) {
+				$missing_batch[ $att ] = true;
+			}
+		}
+
+		if ( ! empty( $missing_batch ) ) {
+			$current = array_map( 'intval', (array) get_option( self::OPT_MISSING_ALT, [] ) );
+			$merged  = array_values( array_unique( array_merge( $current, array_keys( $missing_batch ) ) ) );
+			sort( $merged, SORT_NUMERIC );
+			update_option( self::OPT_MISSING_ALT, $merged, false );
 		}
 
 		return [
@@ -85,21 +169,23 @@ class Alt_Scanner {
 			'imgs_scanned' => $imgs_scanned,
 			'diffs_found'  => $diffs_found,
 			'unresolved'   => $unresolved,
+			'missing_alt'  => count( (array) get_option( self::OPT_MISSING_ALT, [] ) ),
 		];
 	}
 
 	/**
-	 * @return array{0:int,1:int,2:int} [imgs_scanned, diffs_recorded, unresolved]
+	 * @return array{0:int,1:int,2:int,3:int[]} [imgs_scanned, diffs_recorded, unresolved, attachment_ids_missing_alt]
 	 */
 	private function scan_post( int $post_id, string $content, array $url_index ): array {
 		$imgs         = 0;
 		$diffs        = 0;
 		$unresolved   = 0;
+		$missing      = [];
 		$current_srcs = [];
 
 		if ( ! preg_match_all( '#<img\b[^>]*>#i', $content, $m ) ) {
 			$this->store->purge_resolved_for_post( $post_id, [] );
-			return [ 0, 0, 0 ];
+			return [ 0, 0, 0, [] ];
 		}
 
 		foreach ( $m[0] as $tag ) {
@@ -114,19 +200,8 @@ class Alt_Scanner {
 				continue;
 			}
 
-			// Library sources of truth
-			$library_alt   = trim( (string) get_post_meta( $att_id, '_wp_attachment_image_alt', true ) );
-			$library_title = trim( (string) get_the_title( $att_id ) );
-
-			// Drop auto-generated titles that simply echo the filename — they
-			// pollute HTML without helping SEO ("a-propos-claire-photo",
-			// "Dsc 06308", "Img 1234_5"). Only sync titles a human actually
-			// typed.
-			if ( '' !== $library_title && $this->looks_like_filename( $library_title, $src ) ) {
-				$library_title = '';
-			}
-
-			// Read what's in the content
+			// Read what's in the content first so we can use content_alt as a
+			// last-resort fallback when the library is fully empty.
 			$content_alt = '';
 			if ( preg_match( '#\balt=(["\'])(.*?)\1#is', $tag, $am ) ) {
 				$content_alt = trim( html_entity_decode( $am[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
@@ -136,8 +211,17 @@ class Alt_Scanner {
 				$content_title = trim( html_entity_decode( $tm[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
 			}
 
-			// Skip when library values are empty on both sides — nothing to sync.
+			// Library sources of truth — filtered + cross-filled, with
+			// content_alt promoted as fallback so pages with an <img alt>
+			// but empty Bibliothèque still get a matching title synced.
+			[ $library_alt, $library_title ] = self::library_values( $att_id, $src, $content_alt );
+
+			// Nothing to push on either side — flag the attachment for manual
+			// library editing when the content itself also has no alt.
 			if ( '' === $library_alt && '' === $library_title ) {
+				if ( '' === $content_alt ) {
+					$missing[] = $att_id;
+				}
 				continue;
 			}
 
@@ -162,7 +246,7 @@ class Alt_Scanner {
 		}
 
 		$this->store->purge_resolved_for_post( $post_id, $current_srcs );
-		return [ $imgs, $diffs, $unresolved ];
+		return [ $imgs, $diffs, $unresolved, array_values( array_unique( $missing ) ) ];
 	}
 
 	/**
@@ -173,7 +257,7 @@ class Alt_Scanner {
 	 * WordPress core or our own Importer::derive_title() — not a human
 	 * description, so we don't push it as <img title> in HTML.
 	 */
-	private function looks_like_filename( string $title, string $src ): bool {
+	public static function title_looks_like_filename( string $title, string $src ): bool {
 		$path = (string) wp_parse_url( $src, PHP_URL_PATH );
 		$stem = pathinfo( basename( $path ), PATHINFO_FILENAME );
 		// Strip sized suffix and known WP markers.

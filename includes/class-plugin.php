@@ -36,6 +36,22 @@ class Plugin {
 			( new \WKS3M\Admin\Ajax_Controller() )->register();
 			add_filter( 'plugin_row_meta', [ $this, 'open_plugin_site_in_new_tab' ], 10, 2 );
 		}
+
+		// Featured images, gallery tiles, related-posts thumbnails — everything
+		// WordPress renders via wp_get_attachment_image() — get alt from the
+		// library but no title. Mirror alt → title here so both attributes are
+		// present in the HTML, matching what the Alt_Syncer does for <img> tags
+		// embedded in post_content. Priority 999 so we run after plugins like
+		// SlimSEO that fill a missing alt at priority 10 — otherwise the alt
+		// is still empty when we check.
+		add_filter( 'wp_get_attachment_image_attributes', [ $this, 'mirror_alt_to_title' ], 999 );
+	}
+
+	public function mirror_alt_to_title( array $attr ): array {
+		if ( empty( $attr['title'] ) && ! empty( $attr['alt'] ) ) {
+			$attr['title'] = $attr['alt'];
+		}
+		return $attr;
 	}
 
 	/**

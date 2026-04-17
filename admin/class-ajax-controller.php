@@ -32,9 +32,11 @@ class Ajax_Controller {
 			'wks3m_transform_preview' => 'transform_preview',
 			'wks3m_transform_apply'   => 'transform_apply',
 			// Alt sync.
-			'wks3m_alt_scan_batch'    => 'alt_scan_batch',
-			'wks3m_alt_diff_ids'      => 'alt_diff_ids',
-			'wks3m_alt_apply_diff'    => 'alt_apply_diff',
+			'wks3m_alt_scan_batch'          => 'alt_scan_batch',
+			'wks3m_alt_diff_ids'            => 'alt_diff_ids',
+			'wks3m_alt_apply_diff'          => 'alt_apply_diff',
+			'wks3m_alt_fill_from_title'     => 'alt_fill_from_title',
+			'wks3m_alt_missing_ids'         => 'alt_missing_ids',
 		];
 		foreach ( $handlers as $action => $method ) {
 			add_action( "wp_ajax_{$action}", [ $this, $method ] );
@@ -205,5 +207,22 @@ public function import_row(): void {
 			wp_send_json_error( [ 'message' => implode( ' | ', $res['errors'] ) ], 500 );
 		}
 		wp_send_json_success( $res );
+	}
+
+	public function alt_fill_from_title(): void {
+		$this->guard();
+		$id  = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
+		$alt = \WKS3M\Alt_Scanner::fill_alt_from_title( $id );
+		if ( '' === $alt ) {
+			wp_send_json_error( [ 'message' => 'empty_title_or_not_attachment' ], 400 );
+		}
+		wp_send_json_success( [ 'id' => $id, 'alt' => $alt ] );
+	}
+
+	public function alt_missing_ids(): void {
+		$this->guard();
+		wp_send_json_success( [
+			'ids' => array_map( 'intval', (array) get_option( \WKS3M\Alt_Scanner::OPT_MISSING_ALT, [] ) ),
+		] );
 	}
 }

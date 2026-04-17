@@ -392,6 +392,7 @@
 				altScan.imgs      += resp.data.imgs_scanned;
 				altScan.diffs     += resp.data.diffs_found;
 				altScan.unresolved += (resp.data.unresolved || 0);
+				altScan.missing   = resp.data.missing_alt || 0;
 				altScan.offset    = resp.data.next_offset;
 				updateAltScanUI();
 				if (resp.data.processed > 0 && altScan.offset < altScan.total) {
@@ -410,7 +411,8 @@
 			.find('.processed').text(altScan.processed + ' / ' + altScan.total).end()
 			.find('.imgs').text(altScan.imgs).end()
 			.find('.diffs').text(altScan.diffs).end()
-			.find('.unresolved').text(altScan.unresolved);
+			.find('.unresolved').text(altScan.unresolved).end()
+			.find('.missing-alt').text(altScan.missing);
 	}
 
 	function endAltScan(isError) {
@@ -419,19 +421,20 @@
 		$('#wks3m-alt-scan-spinner').removeClass('is-active');
 		$('#wks3m-alt-scan-start').prop('disabled', false);
 		if (isError) { alert(T.error); return; }
-		$('#wks3m-alt-scan-done').prop('hidden', false);
+		// Reload so the divergences table + "missing ALT" panel reflect the
+		// fresh scan. Short delay lets the summary render first.
+		setTimeout(function () { location.reload(); }, 900);
 	}
 
 	function startAltScan() {
 		altScan = {
 			offset: 0,
 			limit: 50,
-			total: 0, processed: 0, imgs: 0, diffs: 0, unresolved: 0,
+			total: 0, processed: 0, imgs: 0, diffs: 0, unresolved: 0, missing: 0,
 			running: true
 		};
 		$('#wks3m-alt-scan-start').prop('disabled', true);
 		$('#wks3m-alt-scan-spinner').addClass('is-active');
-		$('#wks3m-alt-scan-done').prop('hidden', true);
 		renderProgress($('#wks3m-alt-scan-progress'), 0, T.alt_scan_progress);
 		runAltScanBatch();
 	}
@@ -529,6 +532,95 @@
 		$('#wks3m-alt-bulk-stop').prop('disabled', true).text(T.stopping);
 	}
 
+	/* ---------- Alt sync: fill library ALT from post_title ----------
+	 *
+	 * Fast-track action for attachments flagged in the "Images sans ALT en
+	 * Bibliothèque" panel. Copies each attachment's post_title into
+	 * _wp_attachment_image_alt postmeta. A rescan + normal sync still needs
+	 * to run afterwards to push the value into <img> tags.
+	 */
+
+	function handleAltFillRow(e) {
+		var $btn = $(e.currentTarget);
+		var id   = parseInt($btn.data('id'), 10);
+		$btn.prop('disabled', true);
+		post('wks3m_alt_fill_from_title', { id: id })
+			.done(function (resp) {
+				if (!resp || !resp.success) { $btn.prop('disabled', false); alert(errMsg(resp)); return; }
+				$btn.closest('tr').fadeOut(200, function () { $(this).remove(); });
+			})
+			.fail(function () { $btn.prop('disabled', false); alert(T.error); });
+	}
+
+	var altFill = null;
+
+	function drawAltFill(prefix) {
+		var done = altFill.ok + altFill.ko;
+		var pct = altFill.total > 0 ? Math.round((done / altFill.total) * 100) : 0;
+		var label = (prefix ? prefix + ' — ' : '') + pct + '% — ' +
+			done + ' / ' + altFill.total + ' (✔ ' + altFill.ok + ' · ✖ ' + altFill.ko + ')';
+		renderProgress($('#wks3m-alt-fill-progress'), pct, label);
+	}
+
+	function altFillWorker() {
+		if (!altFill) return;
+		if (!altFill.running) { altFillWorkerDone(); return; }
+		if (altFill.cursor >= altFill.total) { altFillWorkerDone(); return; }
+
+		var id = altFill.ids[altFill.cursor++];
+		post('wks3m_alt_fill_from_title', { id: id }).always(function (resp) {
+			if (resp && resp.success) altFill.ok++; else altFill.ko++;
+			$('tr[data-missing-id="' + id + '"]').fadeOut(120, function () { $(this).remove(); });
+			drawAltFill();
+			setTimeout(altFillWorker, 20);
+		});
+	}
+
+	function altFillWorkerDone() {
+		if (!altFill) return;
+		altFill.active--;
+		if (altFill.active <= 0) endAltFill(!altFill.running);
+	}
+
+	function endAltFill(stopped) {
+		var summary = altFill;
+		$('#wks3m-alt-fill-spinner').removeClass('is-active');
+		$('#wks3m-alt-fill-stop').prop('hidden', true).prop('disabled', false).text(T.stop);
+		$('#wks3m-alt-fill-all').prop('disabled', false);
+		if (!summary) return;
+		drawAltFill(stopped ? T.stopped : T.done);
+		altFill = null;
+		if (summary.total === 0) return;
+		setTimeout(function () { location.reload(); }, 600);
+	}
+
+	function handleAltFillAll() {
+		post('wks3m_alt_missing_ids')
+			.done(function (resp) {
+				if (!resp || !resp.success) return alert(T.error);
+				var ids = (resp.data && resp.data.ids) || [];
+				if (!ids.length) { alert(T.alt_nothing); return; }
+				if (!window.confirm(T.confirm_alt_fill || T.confirm_alt_apply)) return;
+				var n = Math.min(concurrency(), ids.length);
+				altFill = {
+					ids: ids, cursor: 0, total: ids.length,
+					ok: 0, ko: 0, running: true, active: n
+				};
+				$('#wks3m-alt-fill-all').prop('disabled', true);
+				$('#wks3m-alt-fill-stop').prop('hidden', false);
+				$('#wks3m-alt-fill-spinner').addClass('is-active');
+				drawAltFill(T.alt_apply_progress);
+				for (var i = 0; i < n; i++) altFillWorker();
+			})
+			.fail(function () { alert(T.error); });
+	}
+
+	function handleAltFillStop() {
+		if (!altFill) return;
+		altFill.running = false;
+		$('#wks3m-alt-fill-stop').prop('disabled', true).text(T.stopping);
+	}
+
 	/* ---------- Bind ---------- */
 
 	$(function () {
@@ -552,6 +644,11 @@
 		$('#wks3m-alt-bulk-apply').on('click',   handleAltBulkApply);
 		$('#wks3m-alt-bulk-stop').on('click',    handleAltBulkStop);
 		$(document).on('click', '.wks3m-alt-apply-btn', handleAltApply);
+
+		// Alt sync — fill library ALT from post_title.
+		$('#wks3m-alt-fill-all').on('click',  handleAltFillAll);
+		$('#wks3m-alt-fill-stop').on('click', handleAltFillStop);
+		$(document).on('click', '.wks3m-alt-fill-btn', handleAltFillRow);
 
 		// Queue: Transform (bulk ALT/title rule).
 		if ($('#wks3m-tr-form').length) {

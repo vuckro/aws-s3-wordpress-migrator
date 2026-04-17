@@ -92,6 +92,7 @@ class Admin {
 			'alt_scan_progress'   => __( 'Scan des ALT en cours…', 'waaskit-s3-migrator' ),
 			'alt_apply_progress'  => __( 'Synchro en cours…', 'waaskit-s3-migrator' ),
 			'confirm_alt_apply'   => __( 'Remplacer les ALT divergents dans le contenu des articles ?', 'waaskit-s3-migrator' ),
+			'confirm_alt_fill'    => __( 'Copier le titre de chaque attachment dans son champ ALT de la Bibliothèque ?', 'waaskit-s3-migrator' ),
 			'alt_nothing'         => __( 'Aucune divergence à synchroniser. Lance un scan d\'abord.', 'waaskit-s3-migrator' ),
 		];
 	}
@@ -130,6 +131,7 @@ class Admin {
 
 		global $wpdb;
 		$wpdb->query( 'TRUNCATE TABLE ' . \WKS3M\Activator::alt_diff_table_name() );
+		delete_option( \WKS3M\Alt_Scanner::OPT_MISSING_ALT );
 
 		wp_safe_redirect( View_Helper::tab_url( 'settings', [ 'purged' => 'alt_diff' ] ) );
 		exit;
