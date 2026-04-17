@@ -41,6 +41,7 @@ $rows = View_Helper::wrap_rows( $data['items'] );
 $purged_rows  = isset( $_GET['purged_rows'] ) ? (int) $_GET['purged_rows'] : -1;
 $purged_revs  = isset( $_GET['purged_revs'] ) ? (int) $_GET['purged_revs'] : -1;
 $purged_metas = isset( $_GET['purged_metas'] ) ? (int) $_GET['purged_metas'] : 0;
+$freed_mb     = isset( $_GET['freed_mb'] ) ? (int) $_GET['freed_mb'] : 0;
 
 $finished_count = (int) ( $counts['replaced'] ?? 0 )
 	+ (int) ( $counts['rolled_back'] ?? 0 )
@@ -53,10 +54,11 @@ $revisions_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WH
 	<div class="notice notice-success is-dismissible"><p>
 		<?php
 		printf(
-			/* translators: 1: number of migration rows deleted, 2: number of postmeta entries deleted */
-			esc_html__( 'Purge terminée : %1$d ligne(s) supprimée(s) + %2$d entrée(s) postmeta nettoyée(s).', 'waaskit-s3-migrator' ),
+			/* translators: 1: rows deleted, 2: postmeta deleted, 3: MB freed */
+			esc_html__( 'Purge terminée : %1$d ligne(s) supprimée(s) + %2$d entrée(s) postmeta. Espace libéré : %3$d MB.', 'waaskit-s3-migrator' ),
 			$purged_rows,
-			$purged_metas
+			$purged_metas,
+			$freed_mb
 		);
 		?>
 	</p></div>
@@ -65,10 +67,11 @@ $revisions_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WH
 	<div class="notice notice-success is-dismissible"><p>
 		<?php
 		printf(
-			/* translators: 1: number of revisions deleted, 2: number of postmeta entries deleted */
-			esc_html__( 'Purge des révisions terminée : %1$d révision(s) supprimée(s) + %2$d entrée(s) postmeta nettoyée(s).', 'waaskit-s3-migrator' ),
+			/* translators: 1: revisions deleted, 2: postmeta deleted, 3: MB freed */
+			esc_html__( 'Purge des révisions terminée : %1$d révision(s) supprimée(s) + %2$d entrée(s) postmeta. Espace libéré : %3$d MB.', 'waaskit-s3-migrator' ),
 			$purged_revs,
-			$purged_metas
+			$purged_metas,
+			$freed_mb
 		);
 		?>
 	</p></div>
@@ -194,6 +197,79 @@ $revisions_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WH
 
 		<?php View_Helper::pagination( (int) $data['pages'], (int) $data['page'] ); ?>
 	<?php endif; ?>
+</div>
+
+<div class="wks3m-panel">
+	<h2><?php esc_html_e( 'Transformer les ALT / Titres avant import', 'waaskit-s3-migrator' ); ?></h2>
+	<p class="description">
+		<?php esc_html_e( 'Construit une règle « Si… alors… » pour nettoyer en masse les ALT et titres détectés au scan, avant de lancer la migration. Typique : « Si l\'ALT contient "xxx", copier le Titre dérivé ».', 'waaskit-s3-migrator' ); ?>
+	</p>
+
+	<table class="form-table" role="presentation" id="wks3m-tr-form">
+		<tbody>
+			<tr>
+				<th scope="row"><label for="wks3m-tr-field"><?php esc_html_e( 'Champ', 'waaskit-s3-migrator' ); ?></label></th>
+				<td>
+					<select id="wks3m-tr-field">
+						<option value="alt"><?php esc_html_e( 'ALT', 'waaskit-s3-migrator' ); ?></option>
+						<option value="title"><?php esc_html_e( 'Titre dérivé', 'waaskit-s3-migrator' ); ?></option>
+					</select>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label><?php esc_html_e( 'Condition', 'waaskit-s3-migrator' ); ?></label></th>
+				<td>
+					<select id="wks3m-tr-cond">
+						<option value="contains"><?php esc_html_e( 'Contient', 'waaskit-s3-migrator' ); ?></option>
+						<option value="equals"><?php esc_html_e( 'Égale', 'waaskit-s3-migrator' ); ?></option>
+						<option value="empty"><?php esc_html_e( 'Est vide', 'waaskit-s3-migrator' ); ?></option>
+					</select>
+					<input type="text" id="wks3m-tr-cond-value" class="regular-text" placeholder="xxx" />
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><label><?php esc_html_e( 'Action', 'waaskit-s3-migrator' ); ?></label></th>
+				<td>
+					<select id="wks3m-tr-action">
+						<option value="from_title"><?php esc_html_e( 'Copier depuis le Titre', 'waaskit-s3-migrator' ); ?></option>
+						<option value="from_alt"><?php esc_html_e( 'Copier depuis l\'ALT', 'waaskit-s3-migrator' ); ?></option>
+						<option value="set_literal"><?php esc_html_e( 'Définir une valeur', 'waaskit-s3-migrator' ); ?></option>
+						<option value="remove_substring"><?php esc_html_e( 'Supprimer la chaîne', 'waaskit-s3-migrator' ); ?></option>
+						<option value="clear"><?php esc_html_e( 'Vider', 'waaskit-s3-migrator' ); ?></option>
+					</select>
+					<input type="text" id="wks3m-tr-action-value" class="regular-text" placeholder="" hidden />
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Propagation', 'waaskit-s3-migrator' ); ?></th>
+				<td>
+					<label><input type="checkbox" id="wks3m-tr-update-attachments" checked />
+						<?php esc_html_e( 'Mettre à jour aussi les attachments déjà importés (postmeta ALT / post_title).', 'waaskit-s3-migrator' ); ?>
+					</label>
+				</td>
+			</tr>
+		</tbody>
+	</table>
+
+	<p>
+		<button type="button" class="button" id="wks3m-tr-preview-btn"><?php esc_html_e( 'Aperçu', 'waaskit-s3-migrator' ); ?></button>
+		<button type="button" class="button button-primary" id="wks3m-tr-apply-btn" disabled><?php esc_html_e( 'Appliquer', 'waaskit-s3-migrator' ); ?></button>
+		<span class="spinner" id="wks3m-tr-spinner" style="float:none;"></span>
+	</p>
+
+	<div id="wks3m-tr-results" class="wks3m-tr-results" hidden>
+		<div class="wks3m-tr-counts"></div>
+		<table class="widefat striped" id="wks3m-tr-sample" hidden>
+			<thead>
+				<tr>
+					<th style="width:80px"><?php esc_html_e( 'ID', 'waaskit-s3-migrator' ); ?></th>
+					<th><?php esc_html_e( 'Avant', 'waaskit-s3-migrator' ); ?></th>
+					<th><?php esc_html_e( 'Après', 'waaskit-s3-migrator' ); ?></th>
+				</tr>
+			</thead>
+			<tbody></tbody>
+		</table>
+	</div>
 </div>
 
 <div class="wks3m-panel">

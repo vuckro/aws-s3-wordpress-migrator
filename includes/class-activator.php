@@ -40,8 +40,6 @@ class Activator {
 	 * upgrade safety-net in Plugin::boot().
 	 */
 	public static function install_default_options(): void {
-		add_option( 'wks3m_dry_run', 1 );
-		add_option( 'wks3m_batch_size', 10 );
 		add_option( 'wks3m_source_hosts', [] );
 		add_option( 'wks3m_auto_detect_external', 1 );
 		add_option( 'wks3m_strip_strapi_prefixes', 1 );

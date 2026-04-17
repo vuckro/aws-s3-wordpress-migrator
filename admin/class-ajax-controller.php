@@ -13,6 +13,7 @@ use WKS3M\Plugin;
 use WKS3M\Replacer;
 use WKS3M\Rollback_Manager;
 use WKS3M\Settings;
+use WKS3M\Transform;
 use WKS3M\Util;
 
 defined( 'ABSPATH' ) || exit;
@@ -29,6 +30,9 @@ class Ajax_Controller {
 			'wks3m_rollback_row'      => 'rollback_row',
 			'wks3m_finalize_thumb'    => 'finalize_thumb',
 			'wks3m_pending_thumb_ids' => 'pending_thumb_ids',
+			// Bulk ALT/title transform on the queue rows (pre-import cleanup).
+			'wks3m_transform_preview' => 'transform_preview',
+			'wks3m_transform_apply'   => 'transform_apply',
 			// Alt sync.
 			'wks3m_alt_scan_batch'    => 'alt_scan_batch',
 			'wks3m_alt_diff_ids'      => 'alt_diff_ids',
@@ -166,6 +170,33 @@ public function import_row(): void {
 		$this->guard();
 		$limit = isset( $_POST['limit'] ) ? max( 1, min( 20000, (int) $_POST['limit'] ) ) : 5000;
 		wp_send_json_success( [ 'ids' => Importer::pending_thumbnails_ids( $limit ) ] );
+	}
+
+	/* ------------ Bulk ALT / title Transform (on queue rows) ------------ */
+
+	public function transform_preview(): void {
+		$this->guard();
+		wp_send_json_success( ( new Transform() )->preview( $this->read_transform_rule() ) );
+	}
+
+	public function transform_apply(): void {
+		$this->guard();
+		wp_send_json_success( ( new Transform() )->apply( $this->read_transform_rule() ) );
+	}
+
+	private function read_transform_rule(): array {
+		return [
+			'field'              => sanitize_key( (string) ( $_POST['field'] ?? '' ) ),
+			'condition'          => [
+				'type'  => sanitize_key( (string) ( $_POST['condition_type'] ?? '' ) ),
+				'value' => isset( $_POST['condition_value'] ) ? (string) wp_unslash( $_POST['condition_value'] ) : '',
+			],
+			'action'             => [
+				'type'  => sanitize_key( (string) ( $_POST['action_type'] ?? '' ) ),
+				'value' => isset( $_POST['action_value'] ) ? (string) wp_unslash( $_POST['action_value'] ) : '',
+			],
+			'update_attachments' => Util::bool_param( $_POST['update_attachments'] ?? null, true ),
+		];
 	}
 
 	/* ------------ Alt sync ------------ */

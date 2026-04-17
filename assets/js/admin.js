@@ -340,6 +340,85 @@
 		startBulk(ids);
 	}
 
+	/* ---------- Queue: Transform rule (bulk ALT/title cleanup) ---------- */
+
+	function transformRule() {
+		return {
+			field:              $('#wks3m-tr-field').val(),
+			condition_type:     $('#wks3m-tr-cond').val(),
+			condition_value:    $('#wks3m-tr-cond-value').val(),
+			action_type:        $('#wks3m-tr-action').val(),
+			action_value:       $('#wks3m-tr-action-value').val(),
+			update_attachments: $('#wks3m-tr-update-attachments').is(':checked') ? 1 : 0
+		};
+	}
+
+	function refreshTransformInputs() {
+		var cond = $('#wks3m-tr-cond').val();
+		$('#wks3m-tr-cond-value').prop('hidden', cond === 'empty');
+
+		var action = $('#wks3m-tr-action').val();
+		$('#wks3m-tr-action-value').prop('hidden', action !== 'set_literal' && action !== 'remove_substring');
+
+		$('#wks3m-tr-apply-btn').prop('disabled', true);
+	}
+
+	function transformValid(rule) {
+		if (!rule.field || !rule.condition_type || !rule.action_type) return false;
+		if (rule.condition_type !== 'empty' && !rule.condition_value)  return false;
+		if (rule.action_type === 'remove_substring' && !rule.action_value) return false;
+		return true;
+	}
+
+	function renderTransformPreview(data) {
+		$('#wks3m-tr-results').prop('hidden', false)
+			.find('.wks3m-tr-counts').html(
+				'<p><strong>' + data.rows + '</strong> ligne(s) seraient modifiées · ' +
+				'<strong>' + data.attachments + '</strong> attachment(s) déjà importé(s) concerné(s).</p>'
+			);
+		var $sample = $('#wks3m-tr-sample');
+		var $tbody  = $sample.find('tbody').empty();
+		(data.sample || []).forEach(function (s) {
+			$tbody.append(
+				'<tr><td>#' + s.id + '</td>' +
+				'<td>' + esc(s.before) + '</td>' +
+				'<td><strong>' + esc(s.after) + '</strong></td></tr>'
+			);
+		});
+		$sample.prop('hidden', !(data.sample && data.sample.length));
+		$('#wks3m-tr-apply-btn').prop('disabled', data.rows === 0);
+	}
+
+	function renderTransformResult(data) {
+		$('#wks3m-tr-results').prop('hidden', false)
+			.find('.wks3m-tr-counts').html(
+				'<div class="notice notice-success inline"><p>' +
+				'<strong>' + data.rows_updated + '</strong> lignes mises à jour · ' +
+				'<strong>' + data.attachments_updated + '</strong> attachments synchronisés.' +
+				'</p></div>'
+			);
+		$('#wks3m-tr-sample').prop('hidden', true);
+		$('#wks3m-tr-apply-btn').prop('disabled', true);
+	}
+
+	function runTransform(action, renderer, confirmFirst) {
+		var rule = transformRule();
+		if (!transformValid(rule)) { alert(T.tr_invalid); return; }
+		if (confirmFirst && !window.confirm(T.tr_confirm)) return;
+		$('#wks3m-tr-spinner').addClass('is-active');
+		if (confirmFirst) $('#wks3m-tr-apply-btn').prop('disabled', true);
+		post(action, rule)
+			.done(function (resp) {
+				$('#wks3m-tr-spinner').removeClass('is-active');
+				if (!resp || !resp.success) return alert(errMsg(resp));
+				renderer(resp.data);
+			})
+			.fail(function () {
+				$('#wks3m-tr-spinner').removeClass('is-active');
+				alert(T.error);
+			});
+	}
+
 	/* ---------- Alt sync: scan ---------- */
 
 	var altScan = null;
@@ -517,5 +596,20 @@
 		$('#wks3m-alt-bulk-apply').on('click',   handleAltBulkApply);
 		$('#wks3m-alt-bulk-stop').on('click',    handleAltBulkStop);
 		$(document).on('click', '.wks3m-alt-apply-btn', handleAltApply);
+
+		// Queue: Transform (bulk ALT/title rule).
+		if ($('#wks3m-tr-form').length) {
+			refreshTransformInputs();
+			$('#wks3m-tr-cond, #wks3m-tr-action').on('change', refreshTransformInputs);
+			$('#wks3m-tr-form :input').on('input', function () {
+				$('#wks3m-tr-apply-btn').prop('disabled', true);
+			});
+			$('#wks3m-tr-preview-btn').on('click', function () {
+				runTransform('wks3m_transform_preview', renderTransformPreview, false);
+			});
+			$('#wks3m-tr-apply-btn').on('click', function () {
+				runTransform('wks3m_transform_apply', renderTransformResult, true);
+			});
+		}
 	});
 }(jQuery));

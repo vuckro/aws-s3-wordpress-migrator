@@ -88,6 +88,9 @@ class Admin {
 			'confirm_rollback'    => __( 'Le contenu de l\'article va être restauré à son état d\'avant la migration. Continuer ?', 'waaskit-s3-migrator' ),
 			// Dry-run alert template (%s placeholders replaced JS-side).
 			'dry_run_tpl'         => __( "Dry-run\n\nSource: %source%\nFichier: %file%\nTitre: %title%\nAlt: %alt%", 'waaskit-s3-migrator' ),
+			// Transform rule builder (bulk ALT/title edit on queue rows).
+			'tr_invalid'          => __( 'Règle incomplète. Vérifie le champ, la condition et l\'action.', 'waaskit-s3-migrator' ),
+			'tr_confirm'          => __( 'Appliquer la règle ? La modification est définitive (pas de rollback pour les transformations).', 'waaskit-s3-migrator' ),
 			// Thumbnail finalization.
 			'finalize_progress'   => __( 'Génération des thumbnails…', 'waaskit-s3-migrator' ),
 			'finalize_none'       => __( 'Aucun thumbnail en attente.', 'waaskit-s3-migrator' ),
@@ -178,6 +181,8 @@ class Admin {
 		global $wpdb;
 		$table = \WKS3M\Activator::table_name();
 
+		$before_mb = $this->table_size_mb( [ $wpdb->postmeta, $table ] );
+
 		$rows_deleted = (int) $wpdb->query(
 			"DELETE FROM {$table} WHERE status IN ('replaced','rolled_back','failed')"
 		);
@@ -189,12 +194,16 @@ class Admin {
 			$wpdb->prepare( "DELETE FROM {$wpdb->postmeta} WHERE meta_key = %s", '_wks3m_replacements' )
 		);
 
+		$this->optimize_and_analyze( [ $wpdb->postmeta, $table ] );
+		$after_mb = $this->table_size_mb( [ $wpdb->postmeta, $table ] );
+
 		wp_safe_redirect(
 			View_Helper::tab_url(
 				'queue',
 				[
 					'purged_rows'  => $rows_deleted,
 					'purged_metas' => $metas_deleted,
+					'freed_mb'     => max( 0, (int) round( $before_mb - $after_mb ) ),
 				]
 			)
 		);
@@ -220,6 +229,9 @@ class Admin {
 		$keep = isset( $_POST['keep'] ) ? max( 0, min( 100, (int) $_POST['keep'] ) ) : 5;
 
 		global $wpdb;
+
+		$before_mb = $this->table_size_mb( [ $wpdb->posts, $wpdb->postmeta ] );
+
 		$ids = $wpdb->get_col( $wpdb->prepare(
 			"SELECT ID FROM (
 				SELECT ID, ROW_NUMBER() OVER (PARTITION BY post_parent ORDER BY post_date DESC) AS rn
@@ -241,16 +253,59 @@ class Admin {
 			}
 		}
 
+		$this->optimize_and_analyze( [ $wpdb->posts, $wpdb->postmeta ] );
+		$after_mb = $this->table_size_mb( [ $wpdb->posts, $wpdb->postmeta ] );
+
 		wp_safe_redirect(
 			View_Helper::tab_url(
 				'queue',
 				[
 					'purged_revs'  => $rows_deleted,
 					'purged_metas' => $metas_deleted,
+					'freed_mb'     => max( 0, (int) round( $before_mb - $after_mb ) ),
 				]
 			)
 		);
 		exit;
+	}
+
+	/**
+	 * Total disk footprint (data + index, MB) of the given tables.
+	 *
+	 * @param string[] $tables Fully-qualified table names.
+	 */
+	private function table_size_mb( array $tables ): float {
+		if ( empty( $tables ) ) {
+			return 0.0;
+		}
+		global $wpdb;
+		$placeholders = implode( ',', array_fill( 0, count( $tables ), '%s' ) );
+		$sql          = $wpdb->prepare(
+			"SELECT COALESCE(SUM(DATA_LENGTH + INDEX_LENGTH), 0) / 1024 / 1024
+			 FROM information_schema.TABLES
+			 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ({$placeholders})",
+			...$tables
+		);
+		return (float) $wpdb->get_var( $sql );
+	}
+
+	/**
+	 * Defragment + refresh stats. Without this MySQL 8 keeps reporting the
+	 * pre-delete size in information_schema.TABLES until its auto-analyze runs,
+	 * which confuses users who "don't see the space come back".
+	 *
+	 * OPTIMIZE TABLE on InnoDB is equivalent to ALTER TABLE … FORCE, so it
+	 * rebuilds the .ibd file in place. Takes seconds per hundred MB — fine for
+	 * a one-off user-triggered action.
+	 *
+	 * @param string[] $tables
+	 */
+	private function optimize_and_analyze( array $tables ): void {
+		if ( empty( $tables ) ) {
+			return;
+		}
+		global $wpdb;
+		$wpdb->query( 'OPTIMIZE TABLE ' . implode( ', ', array_map( 'esc_sql', $tables ) ) );
 	}
 
 	public function render_page(): void {

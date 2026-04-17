@@ -17,14 +17,6 @@ class Settings {
 	/** Size prefixes Strapi emits for CDN image variants. */
 	public const STRAPI_SIZE_PREFIXES = [ 'large_', 'medium_', 'small_', 'thumbnail_' ];
 
-	public static function dry_run(): bool {
-		return (bool) get_option( 'wks3m_dry_run', 1 );
-	}
-
-	public static function batch_size(): int {
-		return max( 1, (int) get_option( 'wks3m_batch_size', 10 ) );
-	}
-
 	/**
 	 * Number of parallel HTTP workers. Fixed at 1 — sequential processing is
 	 * the safest default and removes a source of surprise for end users.
