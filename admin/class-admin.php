@@ -29,6 +29,7 @@ class Admin {
 		add_action( 'admin_post_wks3m_save_performance', [ $this, 'save_performance' ] );
 		add_action( 'admin_post_wks3m_purge_alt_diff', [ $this, 'purge_alt_diff' ] );
 		add_action( 'admin_post_wks3m_purge_alt_history', [ $this, 'purge_alt_history' ] );
+		add_action( 'admin_post_wks3m_purge_queue', [ $this, 'purge_queue' ] );
 	}
 
 	public function add_menu(): void {
@@ -142,7 +143,7 @@ class Admin {
 		global $wpdb;
 		$wpdb->query( 'TRUNCATE TABLE ' . \WKS3M\Activator::alt_diff_table_name() );
 
-		wp_safe_redirect( View_Helper::tab_url( 'settings', [ 'purged' => 'diff' ] ) . '#wks3m-purge' );
+		wp_safe_redirect( View_Helper::tab_url( 'alt-sync', [ 'purged' => 'diff' ] ) );
 		exit;
 	}
 
@@ -154,7 +155,48 @@ class Admin {
 
 		\WKS3M\Plugin::instance()->alt_history_store()->purge();
 
-		wp_safe_redirect( View_Helper::tab_url( 'settings', [ 'purged' => 'history' ] ) . '#wks3m-purge' );
+		wp_safe_redirect( View_Helper::tab_url( 'alt-sync', [ 'view' => 'history', 'purged' => 'history' ] ) );
+		exit;
+	}
+
+	/**
+	 * Delete finished migration-log rows (replaced / rolled_back / failed) and
+	 * the postmeta they left behind (_wks3m_backup_{id}, _wks3m_replacements).
+	 * Biggest space reclaim on sites with large post_content backups.
+	 *
+	 * Warning (in the UI): once this runs, the Synchro ALT scanner loses its
+	 * in-scope universe (it reads from 'replaced' rows + source_url_variants).
+	 * Only purge when alt sync is complete.
+	 */
+	public function purge_queue(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'forbidden', 403 );
+		}
+		check_admin_referer( 'wks3m_purge_queue' );
+
+		global $wpdb;
+		$table = \WKS3M\Activator::table_name();
+
+		$rows_deleted = (int) $wpdb->query(
+			"DELETE FROM {$table} WHERE status IN ('replaced','rolled_back','failed')"
+		);
+
+		// One DELETE per meta key pattern — avoids N queries for N rows.
+		// Escape underscores (LIKE wildcards) with backslashes per MySQL rules.
+		$metas_deleted  = (int) $wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE meta_key LIKE '\\_wks3m\\_backup\\_%'" );
+		$metas_deleted += (int) $wpdb->query(
+			$wpdb->prepare( "DELETE FROM {$wpdb->postmeta} WHERE meta_key = %s", '_wks3m_replacements' )
+		);
+
+		wp_safe_redirect(
+			View_Helper::tab_url(
+				'queue',
+				[
+					'purged_rows'  => $rows_deleted,
+					'purged_metas' => $metas_deleted,
+				]
+			)
+		);
 		exit;
 	}
 

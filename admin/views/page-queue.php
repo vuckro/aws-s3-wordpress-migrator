@@ -37,7 +37,26 @@ $status_tabs = [
 ];
 
 $rows = View_Helper::wrap_rows( $data['items'] );
+
+$purged_rows  = isset( $_GET['purged_rows'] ) ? (int) $_GET['purged_rows'] : -1;
+$purged_metas = isset( $_GET['purged_metas'] ) ? (int) $_GET['purged_metas'] : 0;
+
+$finished_count = (int) ( $counts['replaced'] ?? 0 )
+	+ (int) ( $counts['rolled_back'] ?? 0 )
+	+ (int) ( $counts['failed'] ?? 0 );
 ?>
+<?php if ( $purged_rows >= 0 ) : ?>
+	<div class="notice notice-success is-dismissible"><p>
+		<?php
+		printf(
+			/* translators: 1: number of migration rows deleted, 2: number of postmeta entries deleted */
+			esc_html__( 'Purge terminée : %1$d ligne(s) supprimée(s) + %2$d entrée(s) postmeta nettoyée(s).', 'waaskit-s3-migrator' ),
+			$purged_rows,
+			$purged_metas
+		);
+		?>
+	</p></div>
+<?php endif; ?>
 <div class="wks3m-panel">
 	<h2><?php esc_html_e( 'File d\'attente', 'waaskit-s3-migrator' ); ?></h2>
 
@@ -159,4 +178,29 @@ $rows = View_Helper::wrap_rows( $data['items'] );
 
 		<?php View_Helper::pagination( (int) $data['pages'], (int) $data['page'] ); ?>
 	<?php endif; ?>
+</div>
+
+<div class="wks3m-panel">
+	<h3><?php esc_html_e( 'Nettoyer la file d\'attente', 'waaskit-s3-migrator' ); ?></h3>
+	<p class="description">
+		<?php
+		printf(
+			/* translators: %d: number of finished rows */
+			esc_html__( '%d ligne(s) terminée(s) (remplacées, rollback, échecs). Les supprimer libère aussi les backups `_wks3m_backup_*` et `_wks3m_replacements` en postmeta — c\'est souvent la plus grosse source de surpoids BDD après une migration.', 'waaskit-s3-migrator' ),
+			(int) $finished_count
+		);
+		?>
+	</p>
+	<p class="description">
+		<strong><?php esc_html_e( 'Avant de purger :', 'waaskit-s3-migrator' ); ?></strong>
+		<?php esc_html_e( 'termine ta synchronisation des ALT (l\'onglet Synchro ALT s\'appuie sur ces lignes pour détecter les URLs externes). Le rollback d\'URL ne sera plus possible après purge.', 'waaskit-s3-migrator' ); ?>
+	</p>
+	<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+		onsubmit="return confirm('<?php echo esc_js( __( 'Supprimer toutes les lignes terminées et leurs backups ? Le rollback d\'URL ne sera plus possible.', 'waaskit-s3-migrator' ) ); ?>');">
+		<input type="hidden" name="action" value="wks3m_purge_queue" />
+		<?php wp_nonce_field( 'wks3m_purge_queue' ); ?>
+		<button type="submit" class="button" <?php disabled( 0, $finished_count ); ?>>
+			<?php esc_html_e( 'Purger les lignes terminées', 'waaskit-s3-migrator' ); ?>
+		</button>
+	</form>
 </div>

@@ -22,10 +22,16 @@ $view   = isset( $_GET['view'] ) && 'history' === $_GET['view'] ? 'history' : 'd
 $search = isset( $_GET['s'] ) ? sanitize_text_field( (string) $_GET['s'] ) : '';
 $errors = ! empty( $_GET['errors'] );
 $paged  = isset( $_GET['paged'] ) ? max( 1, (int) $_GET['paged'] ) : 1;
+$purged = isset( $_GET['purged'] ) ? sanitize_key( (string) $_GET['purged'] ) : '';
 
 $diff_counts   = $diff_store->counts();
 $history_count = $history_store->count();
 ?>
+<?php if ( 'diff' === $purged ) : ?>
+	<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Divergences ALT en attente vidées.', 'waaskit-s3-migrator' ); ?></p></div>
+<?php elseif ( 'history' === $purged ) : ?>
+	<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Historique ALT vidé.', 'waaskit-s3-migrator' ); ?></p></div>
+<?php endif; ?>
 <div class="wks3m-panel">
 	<h2><?php esc_html_e( 'Scan des ALT divergents', 'waaskit-s3-migrator' ); ?></h2>
 	<p class="description">
@@ -84,4 +90,56 @@ $history_count = $history_store->count();
 	<?php else : ?>
 		<?php require __DIR__ . '/partials/alt-sync-history.php'; ?>
 	<?php endif; ?>
+</div>
+
+<div class="wks3m-panel">
+	<h3><?php esc_html_e( 'Nettoyer', 'waaskit-s3-migrator' ); ?></h3>
+	<table class="form-table" role="presentation">
+		<tbody>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Divergences en attente', 'waaskit-s3-migrator' ); ?></th>
+				<td>
+					<p class="description">
+						<?php
+						printf(
+							/* translators: %d: number of pending diff rows */
+							esc_html__( '%d ligne(s) non synchronisées. Un nouveau scan les recrée depuis l\'état courant.', 'waaskit-s3-migrator' ),
+							(int) $diff_counts['total']
+						);
+						?>
+					</p>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+						onsubmit="return confirm('<?php echo esc_js( __( 'Vider toutes les divergences ALT en attente ?', 'waaskit-s3-migrator' ) ); ?>');">
+						<input type="hidden" name="action" value="wks3m_purge_alt_diff" />
+						<?php wp_nonce_field( 'wks3m_purge_alt_diff' ); ?>
+						<button type="submit" class="button" <?php disabled( 0, (int) $diff_counts['total'] ); ?>>
+							<?php esc_html_e( 'Vider les divergences en attente', 'waaskit-s3-migrator' ); ?>
+						</button>
+					</form>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Historique', 'waaskit-s3-migrator' ); ?></th>
+				<td>
+					<p class="description">
+						<?php
+						printf(
+							/* translators: %d: number of history rows */
+							esc_html__( '%d sync(s) enregistrée(s). L\'historique reste en base tant qu\'il n\'est pas vidé manuellement.', 'waaskit-s3-migrator' ),
+							(int) $history_count
+						);
+						?>
+					</p>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+						onsubmit="return confirm('<?php echo esc_js( __( 'Vider l\'historique complet des syncs ALT ? Les posts ne sont pas modifiés.', 'waaskit-s3-migrator' ) ); ?>');">
+						<input type="hidden" name="action" value="wks3m_purge_alt_history" />
+						<?php wp_nonce_field( 'wks3m_purge_alt_history' ); ?>
+						<button type="submit" class="button" <?php disabled( 0, (int) $history_count ); ?>>
+							<?php esc_html_e( 'Vider l\'historique', 'waaskit-s3-migrator' ); ?>
+						</button>
+					</form>
+				</td>
+			</tr>
+		</tbody>
+	</table>
 </div>
