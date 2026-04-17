@@ -52,6 +52,7 @@ $alt_counts = $alt_store->counts();
 				<tr><th scope="row"><?php esc_html_e( 'Posts analysés', 'waaskit-s3-migrator' ); ?></th><td class="processed">0</td></tr>
 				<tr><th scope="row"><?php esc_html_e( 'Balises <img> examinées', 'waaskit-s3-migrator' ); ?></th><td class="imgs">0</td></tr>
 				<tr><th scope="row"><?php esc_html_e( 'Divergences détectées', 'waaskit-s3-migrator' ); ?></th><td class="diffs">0</td></tr>
+				<tr><th scope="row"><?php esc_html_e( 'Images non résolues', 'waaskit-s3-migrator' ); ?><br><small class="description"><?php esc_html_e( 'src qui ne matche aucun attachment — soit image orpheline, soit hors périmètre.', 'waaskit-s3-migrator' ); ?></small></th><td class="unresolved">0</td></tr>
 			</tbody>
 		</table>
 	</div>

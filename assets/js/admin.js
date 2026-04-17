@@ -391,6 +391,7 @@
 				altScan.processed += resp.data.processed;
 				altScan.imgs      += resp.data.imgs_scanned;
 				altScan.diffs     += resp.data.diffs_found;
+				altScan.unresolved += (resp.data.unresolved || 0);
 				altScan.offset    = resp.data.next_offset;
 				updateAltScanUI();
 				if (resp.data.processed > 0 && altScan.offset < altScan.total) {
@@ -408,7 +409,8 @@
 		$('#wks3m-alt-scan-summary').prop('hidden', false)
 			.find('.processed').text(altScan.processed + ' / ' + altScan.total).end()
 			.find('.imgs').text(altScan.imgs).end()
-			.find('.diffs').text(altScan.diffs);
+			.find('.diffs').text(altScan.diffs).end()
+			.find('.unresolved').text(altScan.unresolved);
 	}
 
 	function endAltScan(isError) {
@@ -424,7 +426,7 @@
 		altScan = {
 			offset: 0,
 			limit: 50,
-			total: 0, processed: 0, imgs: 0, diffs: 0,
+			total: 0, processed: 0, imgs: 0, diffs: 0, unresolved: 0,
 			running: true
 		};
 		$('#wks3m-alt-scan-start').prop('disabled', true);

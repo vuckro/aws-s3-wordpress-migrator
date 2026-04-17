@@ -3,15 +3,19 @@
  * Alt_Scanner — find <img> tags whose alt attribute in post_content diverges
  * from _wp_attachment_image_alt on the resolved Media Library attachment.
  *
- * Src resolution has two layers, in order:
- *   1. attachment_url_to_postid() — fast path for URLs under wp-content/uploads/
- *   2. Migration-log variant lookup — for URLs still pointing to the original
- *      external source (S3/CDN) that we've already imported a local copy of
- *      but haven't (or couldn't) rewrite in post_content.
+ * Scope: every published post/page/CPT whose post_content contains `<img`.
+ * We do NOT restrict to posts referenced by the migration log — that
+ * coupling left the feature useless after the user purged finished rows,
+ * and missed pre-existing library images the user might also have edited.
+ * The library is always the source of truth.
+ *
+ * Src resolution, in order:
+ *   1. attachment_url_to_postid() — fast path for local uploads URLs (core).
+ *   2. Migration-log variant index — for URLs still pointing to the original
+ *      external source (S3/CDN) when URL replacement didn't cover them.
  *
  * Either way the pivot is the <img src>, NOT class="wp-image-N" — that class
- * is not a reliable identifier on this codebase (the URL replacer stamps the
- * same class onto every <img> in a post during a replace pass).
+ * is not a reliable identifier on migrated content.
  *
  * @package WaasKitS3Migrator
  */
@@ -29,31 +33,49 @@ class Alt_Scanner {
 	}
 
 	/**
-	 * Scan a batch of posts. In-scope = posts referenced by a 'replaced' row
-	 * in the migration log.
+	 * Scan a batch of posts with `<img>` in their content.
 	 *
 	 * @return array{
 	 *     processed:int, total:int, next_offset:int,
-	 *     imgs_scanned:int, diffs_found:int
+	 *     imgs_scanned:int, diffs_found:int, unresolved:int
 	 * }
 	 */
 	public function scan_batch( int $offset = 0, int $limit = 50 ): array {
-		$post_ids = $this->post_ids_in_scope();
-		$total    = count( $post_ids );
+		global $wpdb;
 
-		$slice        = array_slice( $post_ids, $offset, max( 1, $limit ) );
+		$total = (int) $wpdb->get_var(
+			"SELECT COUNT(*) FROM {$wpdb->posts}
+			 WHERE post_status IN ('publish','private','draft','pending','future')
+			 AND post_type NOT IN ('revision','attachment','nav_menu_item')
+			 AND post_content LIKE '%<img%'"
+		);
+
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT ID, post_content FROM {$wpdb->posts}
+				 WHERE post_status IN ('publish','private','draft','pending','future')
+				 AND post_type NOT IN ('revision','attachment','nav_menu_item')
+				 AND post_content LIKE '%<img%'
+				 ORDER BY ID ASC
+				 LIMIT %d OFFSET %d",
+				max( 1, $limit ),
+				max( 0, $offset )
+			),
+			ARRAY_A
+		);
+
+		$url_index    = $this->variant_index();
 		$processed    = 0;
 		$imgs_scanned = 0;
 		$diffs_found  = 0;
+		$unresolved   = 0;
 
-		$owned_atts = $this->owned_attachment_ids();
-		$url_index  = $this->variant_index();
-
-		foreach ( $slice as $post_id ) {
+		foreach ( (array) $rows as $r ) {
 			$processed++;
-			[ $imgs, $diffs ] = $this->scan_post( (int) $post_id, $owned_atts, $url_index );
+			[ $imgs, $diffs, $unres ] = $this->scan_post( (int) $r['ID'], (string) $r['post_content'], $url_index );
 			$imgs_scanned    += $imgs;
 			$diffs_found     += $diffs;
+			$unresolved      += $unres;
 		}
 
 		return [
@@ -62,30 +84,22 @@ class Alt_Scanner {
 			'next_offset'  => $offset + $processed,
 			'imgs_scanned' => $imgs_scanned,
 			'diffs_found'  => $diffs_found,
+			'unresolved'   => $unresolved,
 		];
 	}
 
 	/**
-	 * @return array{0:int,1:int} [imgs_scanned, diffs_recorded]
+	 * @return array{0:int,1:int,2:int} [imgs_scanned, diffs_recorded, unresolved]
 	 */
-	private function scan_post( int $post_id, array $owned_atts, array $url_index ): array {
-		$post = get_post( $post_id );
-		if ( ! $post ) {
-			return [ 0, 0 ];
-		}
-		$content = (string) $post->post_content;
-		if ( '' === $content || false === stripos( $content, '<img' ) ) {
-			$this->store->purge_resolved_for_post( $post_id, [] );
-			return [ 0, 0 ];
-		}
-
+	private function scan_post( int $post_id, string $content, array $url_index ): array {
 		$imgs         = 0;
 		$diffs        = 0;
+		$unresolved   = 0;
 		$current_srcs = [];
 
 		if ( ! preg_match_all( '#<img\b[^>]*>#i', $content, $m ) ) {
 			$this->store->purge_resolved_for_post( $post_id, [] );
-			return [ 0, 0 ];
+			return [ 0, 0, 0 ];
 		}
 
 		foreach ( $m[0] as $tag ) {
@@ -95,12 +109,14 @@ class Alt_Scanner {
 			}
 			$src    = html_entity_decode( $sm[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 			$att_id = $this->resolve_src( $src, $url_index );
-			if ( $att_id <= 0 || ! isset( $owned_atts[ $att_id ] ) ) {
+			if ( $att_id <= 0 ) {
+				$unresolved++;
 				continue;
 			}
 
 			$library_alt = trim( (string) get_post_meta( $att_id, '_wp_attachment_image_alt', true ) );
 			if ( '' === $library_alt ) {
+				// Never overwrite content alt with an empty library value.
 				continue;
 			}
 
@@ -118,91 +134,78 @@ class Alt_Scanner {
 		}
 
 		$this->store->purge_resolved_for_post( $post_id, $current_srcs );
-		return [ $imgs, $diffs ];
+		return [ $imgs, $diffs, $unresolved ];
 	}
 
 	/**
-	 * Resolve a src URL to an attachment ID.
-	 *
-	 * Fast path: core's attachment_url_to_postid (local uploads URLs).
-	 * Fallback: variant index built from migration log — picks up S3/CDN URLs
-	 * that were never rewritten in post_content but whose underlying file has
-	 * been imported.
+	 * Resolve a src URL to an attachment ID, three passes:
+	 *   1. Core attachment_url_to_postid() — local uploads, sized variants.
+	 *   2. Migration-log variant index — external S3/CDN URLs we imported.
+	 *   3. Filename match against _wp_attached_file postmeta — catches local
+	 *      URLs that core fails on (e.g. when attachment metadata is stale
+	 *      or the sized variant isn't registered in _wp_attachment_metadata).
+	 *      This is what rescues the typical "-1024x527.jpg" miss.
 	 */
 	private function resolve_src( string $src, array $url_index ): int {
 		$id = (int) attachment_url_to_postid( $src );
 		if ( $id > 0 ) {
 			return $id;
 		}
-		return (int) ( $url_index[ $src ] ?? 0 );
+		$id = (int) ( $url_index[ $src ] ?? 0 );
+		if ( $id > 0 ) {
+			return $id;
+		}
+		return $this->resolve_by_filename( $src );
 	}
 
 	/**
-	 * Union of post_ids across all 'replaced' migration log rows. Cached
-	 * per-request.
+	 * Third-pass resolver — filename lookup in `_wp_attached_file` postmeta.
 	 *
-	 * @return int[]
-	 */
-	private function post_ids_in_scope(): array {
-		static $cache = null;
-		if ( null !== $cache ) {
-			return $cache;
-		}
-		global $wpdb;
-		$table = Activator::table_name();
-		$rows  = $wpdb->get_col( "SELECT post_ids FROM {$table} WHERE status = 'replaced' AND post_ids IS NOT NULL" );
-
-		$set = [];
-		foreach ( (array) $rows as $raw ) {
-			$list = json_decode( (string) $raw, true );
-			if ( ! is_array( $list ) ) {
-				continue;
-			}
-			foreach ( $list as $pid ) {
-				$pid = (int) $pid;
-				if ( $pid > 0 ) {
-					$set[ $pid ] = true;
-				}
-			}
-		}
-		$ids = array_keys( $set );
-		sort( $ids, SORT_NUMERIC );
-		$cache = $ids;
-		return $cache;
-	}
-
-	/**
-	 * Set of attachment IDs the plugin owns (imported or replaced). Safety
-	 * filter so we never rewrite alts on attachments unrelated to the migration.
+	 * Strips the `-WIDTHxHEIGHT` size suffix AND matches `-scaled` variants
+	 * (WordPress auto-generates `foo-scaled.ext` for images over the
+	 * big_image_size_threshold — 2560 px by default — while <img> tags in
+	 * content may still reference `foo-1024x683.ext`).
 	 *
-	 * @return array<int,true>
+	 * Cached per-request.
 	 */
-	private function owned_attachment_ids(): array {
-		static $cache = null;
-		if ( null !== $cache ) {
-			return $cache;
+	private function resolve_by_filename( string $src ): int {
+		static $cache = [];
+		$path = (string) wp_parse_url( $src, PHP_URL_PATH );
+		if ( '' === $path ) {
+			return 0;
 		}
+		$filename = basename( $path );
+		if ( isset( $cache[ $filename ] ) ) {
+			return $cache[ $filename ];
+		}
+		// Strip sized variant and extract stem (no extension, no -scaled).
+		$base = preg_replace( '/-\d+x\d+(?=\.[a-z0-9]{2,5}$)/i', '', $filename );
+		$stem = preg_replace( '/\.[a-z0-9]{2,5}$/i', '', $base );
+		if ( '' === $stem ) {
+			return $cache[ $filename ] = 0;
+		}
+
 		global $wpdb;
-		$table = Activator::table_name();
-		$rows  = $wpdb->get_col(
-			"SELECT attachment_id FROM {$table}
-			 WHERE status IN ('imported','replaced') AND attachment_id IS NOT NULL"
+		$like1 = '%/' . $wpdb->esc_like( $stem ) . '.%';            // foo.ext
+		$like2 = '%/' . $wpdb->esc_like( $stem . '-scaled' ) . '.%'; // foo-scaled.ext
+		$id    = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT post_id FROM {$wpdb->postmeta}
+				 WHERE meta_key = '_wp_attached_file'
+				   AND ( meta_value LIKE %s OR meta_value LIKE %s )
+				 LIMIT 1",
+				$like1,
+				$like2
+			)
 		);
-		$set = [];
-		foreach ( (array) $rows as $id ) {
-			$id = (int) $id;
-			if ( $id > 0 ) {
-				$set[ $id ] = true;
-			}
-		}
-		$cache = $set;
-		return $cache;
+		$cache[ $filename ] = $id;
+		return $id;
 	}
 
 	/**
 	 * Map of external-variant URL → attachment_id, built from the migration
-	 * log. Used to resolve src attributes that still point to the original
-	 * S3/CDN host (i.e. post_content that was never URL-rewritten).
+	 * log. Empty if the log has been purged — that's fine, the primary
+	 * attachment_url_to_postid() path handles local URLs.
 	 *
 	 * @return array<string,int>
 	 */
