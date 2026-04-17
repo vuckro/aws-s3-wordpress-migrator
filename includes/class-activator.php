@@ -12,7 +12,7 @@ defined( 'ABSPATH' ) || exit;
 class Activator {
 
 	public const TABLE_VERSION_OPTION = 'wks3m_db_version';
-	public const CURRENT_DB_VERSION   = '1.8.0';
+	public const CURRENT_DB_VERSION   = '1.9.0';
 
 	public static function table_name(): string {
 		global $wpdb;
@@ -83,6 +83,18 @@ class Activator {
 			] as $deprecated ) {
 				delete_option( $deprecated );
 			}
+		}
+
+		if ( '' !== $prev_version && version_compare( $prev_version, '1.9.0', '<' ) ) {
+			// Re-run the postmeta cleanup from 1.7.0. Users who pulled a DB
+			// dump with db_version already ≥ 1.7.0 but with orphan
+			// _wks3m_backup_* / _wks3m_replacements postmeta from an earlier
+			// plugin version would otherwise keep carrying hundreds of MB of
+			// dead data (the rollback feature was removed in 1.6.0).
+			$wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE meta_key LIKE '\\_wks3m\\_backup\\_%'" );
+			$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->postmeta} WHERE meta_key = %s", '_wks3m_replacements' ) );
+			// OPTIMIZE so the freed disk space shows up immediately.
+			$wpdb->query( "OPTIMIZE TABLE {$wpdb->postmeta}" );
 		}
 
 		update_option( self::TABLE_VERSION_OPTION, self::CURRENT_DB_VERSION );
