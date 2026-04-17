@@ -98,8 +98,8 @@ $alt_counts = $alt_store->counts();
 				<tr>
 					<th style="width:72px"><?php esc_html_e( 'Aperçu', 'waaskit-s3-migrator' ); ?></th>
 					<th><?php esc_html_e( 'Post', 'waaskit-s3-migrator' ); ?></th>
-					<th><?php esc_html_e( 'ALT (contenu → biblio)', 'waaskit-s3-migrator' ); ?></th>
-					<th><?php esc_html_e( 'Title (contenu → biblio)', 'waaskit-s3-migrator' ); ?></th>
+					<th><?php esc_html_e( 'ALT', 'waaskit-s3-migrator' ); ?><br><small class="description"><?php esc_html_e( 'contenu actuel → biblio', 'waaskit-s3-migrator' ); ?></small></th>
+					<th><?php esc_html_e( 'Title', 'waaskit-s3-migrator' ); ?><br><small class="description"><?php esc_html_e( 'contenu actuel → biblio', 'waaskit-s3-migrator' ); ?></small></th>
 					<th style="width:160px"><?php esc_html_e( 'Action', 'waaskit-s3-migrator' ); ?></th>
 				</tr>
 			</thead>
