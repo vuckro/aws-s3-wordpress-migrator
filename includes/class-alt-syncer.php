@@ -11,6 +11,12 @@
  *    so that edits made to the library between scan and apply are honoured.
  *  - Backup key per diff (`_wks3m_alt_backup_{diff_id}`) keeps rollback
  *    granular — you can undo one image without touching the others.
+ *  - We write post_content directly via $wpdb->update, NOT wp_update_post().
+ *    Rationale: `wp_update_post` fires the full `save_post` cascade (Yoast
+ *    reindex, revision insert, every SEO/form plugin's listeners). On a bulk
+ *    of thousands of diffs that cascade is what kills the site. A direct
+ *    UPDATE writes the same bytes without the fireworks. `clean_post_cache`
+ *    keeps object-cache consistency.
  *
  * @package WaasKitS3Migrator
  */
@@ -66,10 +72,10 @@ class Alt_Syncer {
 			update_post_meta( $post_id, self::BACKUP_META_PREFIX . $diff->id(), $original );
 		}
 
-		$res = wp_update_post( [ 'ID' => $post_id, 'post_content' => $new ], true );
-		if ( is_wp_error( $res ) ) {
-			$this->store->mark_failed( $diff->id(), $res->get_error_message() );
-			return [ 'tags_updated' => 0, 'library_alt' => $library_alt, 'errors' => [ $res->get_error_message() ] ];
+		if ( false === $this->write_post_content( $post_id, $new ) ) {
+			$err = $this->last_db_error();
+			$this->store->mark_failed( $diff->id(), $err );
+			return [ 'tags_updated' => 0, 'library_alt' => $library_alt, 'errors' => [ $err ] ];
 		}
 
 		$this->store->mark_applied( $diff->id() );
@@ -86,13 +92,46 @@ class Alt_Syncer {
 		if ( '' === $backup || null === $backup ) {
 			return [ 'posts_restored' => 0, 'errors' => [ 'no_backup' ] ];
 		}
-		$res = wp_update_post( [ 'ID' => $post_id, 'post_content' => $backup ], true );
-		if ( is_wp_error( $res ) ) {
-			return [ 'posts_restored' => 0, 'errors' => [ $res->get_error_message() ] ];
+		if ( false === $this->write_post_content( $post_id, (string) $backup ) ) {
+			return [ 'posts_restored' => 0, 'errors' => [ $this->last_db_error() ] ];
 		}
 		delete_post_meta( $post_id, $key );
 		$this->store->mark_rolled_back( $diff->id() );
 		return [ 'posts_restored' => 1, 'errors' => [] ];
+	}
+
+	/**
+	 * Write post_content via a direct SQL UPDATE, bumping post_modified and
+	 * invalidating WP's object cache. Bypasses save_post hooks, wp_insert_post
+	 * filters and revisions — they are the root cause of the pool exhaustion
+	 * during bulk sync on plugin-heavy sites.
+	 *
+	 * @return int|false Number of rows updated, or false on DB error.
+	 */
+	private function write_post_content( int $post_id, string $content ) {
+		global $wpdb;
+		$now     = current_time( 'mysql' );
+		$now_gmt = current_time( 'mysql', true );
+		$result  = $wpdb->update(
+			$wpdb->posts,
+			[
+				'post_content'      => $content,
+				'post_modified'     => $now,
+				'post_modified_gmt' => $now_gmt,
+			],
+			[ 'ID' => $post_id ],
+			[ '%s', '%s', '%s' ],
+			[ '%d' ]
+		);
+		if ( false !== $result ) {
+			clean_post_cache( $post_id );
+		}
+		return $result;
+	}
+
+	private function last_db_error(): string {
+		global $wpdb;
+		return $wpdb->last_error ?: 'db_update_failed';
 	}
 
 	/**
