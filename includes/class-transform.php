@@ -30,11 +30,9 @@ class Transform {
 	public const COND_EQUALS   = 'equals';
 	public const COND_EMPTY    = 'empty';
 
-	public const ACTION_SET_LITERAL      = 'set_literal';
-	public const ACTION_FROM_TITLE       = 'from_title';
-	public const ACTION_FROM_ALT         = 'from_alt';
-	public const ACTION_REMOVE_SUBSTRING = 'remove_substring';
-	public const ACTION_CLEAR            = 'clear';
+	public const ACTION_SET_LITERAL = 'set_literal';
+	public const ACTION_FROM_TITLE  = 'from_title';
+	public const ACTION_CLEAR       = 'clear';
 
 	/**
 	 * Report how many rows and attachments a rule would affect + a 5-row sample
@@ -86,7 +84,6 @@ class Transform {
 			$before = (string) ( $rule['field'] === self::FIELD_ALT ? $r['alt_text'] : $r['derived_title'] );
 			$after  = $this->compute_after(
 				$before,
-				(string) $r['alt_text'],
 				(string) $r['derived_title'],
 				$rule['action']
 			);
@@ -162,25 +159,21 @@ class Transform {
 	private function set_clause( string $column, array $action ): array {
 		$value = (string) ( $action['value'] ?? '' );
 		return match ( $action['type'] ) {
-			self::ACTION_SET_LITERAL      => [ "{$column} = %s", [ $value ] ],
-			self::ACTION_CLEAR            => [ "{$column} = ''", [] ],
-			self::ACTION_FROM_TITLE       => [ "{$column} = derived_title", [] ],
-			self::ACTION_FROM_ALT         => [ "{$column} = alt_text", [] ],
-			self::ACTION_REMOVE_SUBSTRING => [ "{$column} = REPLACE({$column}, %s, '')", [ $value ] ],
-			default                       => [ "{$column} = {$column}", [] ],
+			self::ACTION_SET_LITERAL => [ "{$column} = %s", [ $value ] ],
+			self::ACTION_CLEAR       => [ "{$column} = ''", [] ],
+			self::ACTION_FROM_TITLE  => [ "{$column} = derived_title", [] ],
+			default                  => [ "{$column} = {$column}", [] ],
 		};
 	}
 
 	/** Simulate the action in PHP (kept in sync with set_clause). */
-	private function compute_after( string $before, string $alt_text, string $derived_title, array $action ): string {
+	private function compute_after( string $before, string $derived_title, array $action ): string {
 		$value = (string) ( $action['value'] ?? '' );
 		return match ( $action['type'] ) {
-			self::ACTION_SET_LITERAL      => $value,
-			self::ACTION_CLEAR            => '',
-			self::ACTION_FROM_TITLE       => $derived_title,
-			self::ACTION_FROM_ALT         => $alt_text,
-			self::ACTION_REMOVE_SUBSTRING => str_replace( $value, '', $before ),
-			default                       => $before,
+			self::ACTION_SET_LITERAL => $value,
+			self::ACTION_CLEAR       => '',
+			self::ACTION_FROM_TITLE  => $derived_title,
+			default                  => $before,
 		};
 	}
 
@@ -215,7 +208,6 @@ class Transform {
 			$current_source_before = self::FIELD_ALT === $rule['field'] ? (string) $r['alt_text'] : (string) $r['derived_title'];
 			$new_value             = $this->compute_after(
 				$current_source_before,
-				(string) $r['alt_text'],
 				(string) $r['derived_title'],
 				$rule['action']
 			);
@@ -254,24 +246,18 @@ class Transform {
 		$valid_act   = [
 			self::ACTION_SET_LITERAL,
 			self::ACTION_FROM_TITLE,
-			self::ACTION_FROM_ALT,
-			self::ACTION_REMOVE_SUBSTRING,
 			self::ACTION_CLEAR,
 		];
 		if ( ! in_array( $action_type, $valid_act, true ) ) {
 			return null;
 		}
 		$action_value = (string) ( $rule['action']['value'] ?? '' );
-		if ( in_array( $action_type, [ self::ACTION_SET_LITERAL, self::ACTION_REMOVE_SUBSTRING ], true ) && '' === $action_value && self::ACTION_SET_LITERAL !== $action_type ) {
-			// set_literal with empty value == clear, allowed; remove_substring with empty value is a no-op.
-			return null;
-		}
 
 		return [
 			'field'              => $field,
 			'condition'          => [ 'type' => $cond_type, 'value' => $cond_value ],
 			'action'             => [ 'type' => $action_type, 'value' => $action_value ],
-			'update_attachments' => ! empty( $rule['update_attachments'] ),
+			'update_attachments' => true,
 		];
 	}
 }

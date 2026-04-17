@@ -33,8 +33,8 @@ class Admin {
 
 	public function add_menu(): void {
 		add_management_page(
-			__( 'AWS S3 WordPress Migrator', 'waaskit-s3-migrator' ),
-			__( 'AWS S3 Migrator', 'waaskit-s3-migrator' ),
+			__( 'Offload Media Importer', 'waaskit-s3-migrator' ),
+			__( 'Offload Media Importer', 'waaskit-s3-migrator' ),
 			'manage_options',
 			self::MENU_SLUG,
 			[ $this, 'render_page' ]
@@ -62,10 +62,10 @@ class Admin {
 	private static function i18n_strings(): array {
 		return [
 			'scanning'            => __( 'Scan en cours…', 'waaskit-s3-migrator' ),
-			'bulk_progress'       => __( 'Migration en cours…', 'waaskit-s3-migrator' ),
+			'bulk_progress'       => __( 'Import en cours…', 'waaskit-s3-migrator' ),
 			'error'               => __( 'Erreur.', 'waaskit-s3-migrator' ),
 			'importing'           => __( 'Import en cours…', 'waaskit-s3-migrator' ),
-			'btn_migrate'         => __( 'Migrer', 'waaskit-s3-migrator' ),
+			'btn_import'          => __( 'Importer', 'waaskit-s3-migrator' ),
 			'stop'                => __( 'Stop', 'waaskit-s3-migrator' ),
 			'stopping'            => __( 'Arrêt en cours…', 'waaskit-s3-migrator' ),
 			'stopped'             => __( 'Arrêté', 'waaskit-s3-migrator' ),
@@ -79,10 +79,7 @@ class Admin {
 			'failed'              => __( 'Échec', 'waaskit-s3-migrator' ),
 			'view_media'          => __( 'Voir média', 'waaskit-s3-migrator' ),
 			// Confirmations.
-			'confirm_real'        => __( 'Mode réel : l\'image sera téléchargée dans la Media Library. Continuer ?', 'waaskit-s3-migrator' ),
-			'confirm_bulk'        => __( 'Migrer toutes les images en attente en mode réel ? Cette opération peut prendre du temps.', 'waaskit-s3-migrator' ),
-			// Dry-run alert template (%s placeholders replaced JS-side).
-			'dry_run_tpl'         => __( "Dry-run\n\nSource: %source%\nFichier: %file%\nTitre: %title%\nAlt: %alt%", 'waaskit-s3-migrator' ),
+			'confirm_bulk'        => __( 'Importer toutes les images en attente ? Cette opération peut prendre du temps.', 'waaskit-s3-migrator' ),
 			// Transform rule builder (bulk ALT/title edit on queue rows).
 			'tr_invalid'          => __( 'Règle incomplète. Vérifie le champ, la condition et l\'action.', 'waaskit-s3-migrator' ),
 			'tr_confirm'          => __( 'Appliquer la règle ? La modification est définitive.', 'waaskit-s3-migrator' ),
@@ -107,9 +104,6 @@ class Admin {
 		$raw   = isset( $_POST['source_hosts'] ) ? (string) wp_unslash( $_POST['source_hosts'] ) : '';
 		$hosts = preg_split( '/[\s,]+/', $raw, -1, PREG_SPLIT_NO_EMPTY ) ?: [];
 		\WKS3M\Settings::set_source_hosts( $hosts );
-
-		update_option( 'wks3m_auto_detect_external', ! empty( $_POST['auto_detect'] ) ? 1 : 0 );
-		update_option( 'wks3m_strip_strapi_prefixes', ! empty( $_POST['strip_prefixes'] ) ? 1 : 0 );
 
 		wp_safe_redirect( View_Helper::tab_url( 'scan', [ 'sources_saved' => 1 ] ) );
 		exit;
@@ -265,7 +259,7 @@ class Admin {
 		}
 		?>
 		<div class="wrap wks3m-wrap">
-			<h1><?php esc_html_e( 'AWS S3 WordPress Migrator', 'waaskit-s3-migrator' ); ?></h1>
+			<h1><?php esc_html_e( 'Offload Media Importer', 'waaskit-s3-migrator' ); ?></h1>
 			<nav class="nav-tab-wrapper">
 				<?php foreach ( self::TABS as $key => $meta ) : ?>
 					<?php echo View_Helper::nav_tab( $key, $tab, __( $meta['label'], 'waaskit-s3-migrator' ) ); // phpcs:ignore ?>

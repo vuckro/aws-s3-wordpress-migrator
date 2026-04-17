@@ -29,20 +29,7 @@ class Importer {
 	}
 
 	/**
-	 * Simulate an import — returns what would be written. No side effects.
-	 */
-	public function dry_run( Migration_Row $row ): array {
-		$source = $row->best_variant();
-		return [
-			'source_url'    => $source,
-			'would_save_as' => sanitize_file_name( Url_Helper::base_key( $source, Settings::strip_strapi_prefixes() ) ),
-			'post_title'    => $row->derived_title(),
-			'alt_text'      => $row->alt_text(),
-		];
-	}
-
-	/**
-	 * Perform a real import.
+	 * Perform the import.
 	 *
 	 * @param Migration_Row $row
 	 * @param bool|null     $defer_thumbnails When true, skips wp_generate_attachment_metadata()

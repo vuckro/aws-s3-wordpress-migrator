@@ -79,12 +79,21 @@ class Settings {
 		update_option( 'wks3m_source_hosts', array_values( array_unique( array_map( 'strtolower', array_map( 'trim', $hosts ) ) ) ) );
 	}
 
+	/**
+	 * Auto-detect any external image host when `source_hosts` is empty.
+	 * Always on — the old opt-out checkbox was noise; scanning nothing when
+	 * no hosts are configured never helped anyone.
+	 */
 	public static function auto_detect_external(): bool {
-		return (bool) get_option( 'wks3m_auto_detect_external', 1 );
+		return true;
 	}
 
+	/**
+	 * Group Strapi size variants (large_, medium_, small_, thumbnail_) as a
+	 * single image. Always on — no reason to treat these as separate images.
+	 */
 	public static function strip_strapi_prefixes(): bool {
-		return (bool) get_option( 'wks3m_strip_strapi_prefixes', 1 );
+		return true;
 	}
 
 	/**

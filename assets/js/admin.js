@@ -96,43 +96,24 @@
 
 	/* ---------- Queue: single-row actions ---------- */
 
-	function importOptions() {
-		return {
-			dry_run:      $('#wks3m-dry-run').is(':checked') ? 1 : 0,
-			auto_replace: $('#wks3m-auto-replace').is(':checked') ? 1 : 0
-		};
-	}
-
 	function handleImport(e) {
 		var $btn = $(e.currentTarget);
 		var id   = parseInt($btn.data('id'), 10);
-		var opts = importOptions();
-		if (!opts.dry_run && !window.confirm(T.confirm_real)) return;
 
 		$btn.prop('disabled', true).text(T.importing);
-		post('wks3m_import_row', $.extend({ id: id }, opts))
+		post('wks3m_import_row', { id: id })
 			.done(function (resp) {
 				var $row = $('tr[data-id="' + id + '"]');
 				if (!resp || !resp.success) {
-					$btn.prop('disabled', false).text(T.btn_migrate);
+					$btn.prop('disabled', false).text(T.btn_import);
 					alert(errMsg(resp));
-					return;
-				}
-				if (resp.data.dry_run) {
-					$btn.prop('disabled', false).text(T.btn_migrate);
-					var p = resp.data.preview;
-					alert(T.dry_run_tpl
-						.replace('%source%', p.source_url)
-						.replace('%file%',   p.would_save_as)
-						.replace('%title%',  p.post_title)
-						.replace('%alt%',    p.alt_text));
 					return;
 				}
 				setStatus($row, resp.data.status);
 				$row.find('.wks3m-import-btn, .wks3m-replace-btn').replaceWith(editMediaLink(resp.data.attachment_id));
 			})
 			.fail(function () {
-				$btn.prop('disabled', false).text(T.btn_migrate);
+				$btn.prop('disabled', false).text(T.btn_import);
 				alert(T.error);
 			});
 	}
@@ -183,13 +164,12 @@
 		if (bulk.cursor >= bulk.total) { bulkWorkerDone(); return; }
 
 		var id = bulk.ids[bulk.cursor++];
-		post('wks3m_import_row', $.extend({ id: id }, importOptions())).always(function (resp) {
+		post('wks3m_import_row', { id: id }).always(function (resp) {
 			var $row = $('tr[data-id="' + id + '"]');
 			if (resp && resp.success) {
 				bulk.ok++;
 				if ($row.length) {
-					setStatus($row, (resp.data && resp.data.dry_run) ? 'pending'
-						: (resp.data && resp.data.status) || 'imported');
+					setStatus($row, (resp.data && resp.data.status) || 'imported');
 				}
 			} else {
 				bulk.ko++;
@@ -223,7 +203,7 @@
 
 	function startBulk(ids) {
 		if (!ids || !ids.length) { alert(T.nothing_to_do); return; }
-		if (!$('#wks3m-dry-run').is(':checked') && !window.confirm(T.confirm_bulk)) return;
+		if (!window.confirm(T.confirm_bulk)) return;
 
 		var n = Math.min(concurrency(), ids.length);
 		bulk = {
@@ -325,12 +305,11 @@
 
 	function transformRule() {
 		return {
-			field:              $('#wks3m-tr-field').val(),
-			condition_type:     $('#wks3m-tr-cond').val(),
-			condition_value:    $('#wks3m-tr-cond-value').val(),
-			action_type:        $('#wks3m-tr-action').val(),
-			action_value:       $('#wks3m-tr-action-value').val(),
-			update_attachments: $('#wks3m-tr-update-attachments').is(':checked') ? 1 : 0
+			field:           $('#wks3m-tr-field').val(),
+			condition_type:  $('#wks3m-tr-cond').val(),
+			condition_value: $('#wks3m-tr-cond-value').val(),
+			action_type:     $('#wks3m-tr-action').val(),
+			action_value:    $('#wks3m-tr-action-value').val()
 		};
 	}
 
@@ -339,7 +318,7 @@
 		$('#wks3m-tr-cond-value').prop('hidden', cond === 'empty');
 
 		var action = $('#wks3m-tr-action').val();
-		$('#wks3m-tr-action-value').prop('hidden', action !== 'set_literal' && action !== 'remove_substring');
+		$('#wks3m-tr-action-value').prop('hidden', action !== 'set_literal');
 
 		$('#wks3m-tr-apply-btn').prop('disabled', true);
 	}
@@ -347,7 +326,6 @@
 	function transformValid(rule) {
 		if (!rule.field || !rule.condition_type || !rule.action_type) return false;
 		if (rule.condition_type !== 'empty' && !rule.condition_value)  return false;
-		if (rule.action_type === 'remove_substring' && !rule.action_value) return false;
 		return true;
 	}
 

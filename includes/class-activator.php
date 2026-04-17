@@ -12,7 +12,7 @@ defined( 'ABSPATH' ) || exit;
 class Activator {
 
 	public const TABLE_VERSION_OPTION = 'wks3m_db_version';
-	public const CURRENT_DB_VERSION   = '1.7.0';
+	public const CURRENT_DB_VERSION   = '1.8.0';
 
 	public static function table_name(): string {
 		global $wpdb;
@@ -35,8 +35,6 @@ class Activator {
 	 */
 	public static function install_default_options(): void {
 		add_option( 'wks3m_source_hosts', [] );
-		add_option( 'wks3m_auto_detect_external', 1 );
-		add_option( 'wks3m_strip_strapi_prefixes', 1 );
 		add_option( 'wks3m_defer_thumbnails', 0 );
 	}
 
@@ -71,6 +69,20 @@ class Activator {
 			// Free postmeta the removed rollback feature was writing to.
 			$wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE meta_key LIKE '\\_wks3m\\_backup\\_%'" );
 			$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->postmeta} WHERE meta_key = %s", '_wks3m_replacements' ) );
+		}
+
+		if ( '' !== $prev_version && version_compare( $prev_version, '1.8.0', '<' ) ) {
+			// Options no longer read by any code path.
+			foreach ( [
+				'wks3m_auto_detect_external',
+				'wks3m_strip_strapi_prefixes',
+				'wks3m_concurrency',
+				'wks3m_download_retries',
+				'wks3m_dry_run',
+				'wks3m_batch_size',
+			] as $deprecated ) {
+				delete_option( $deprecated );
+			}
 		}
 
 		update_option( self::TABLE_VERSION_OPTION, self::CURRENT_DB_VERSION );

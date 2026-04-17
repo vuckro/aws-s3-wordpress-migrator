@@ -1,6 +1,6 @@
-# AWS S3 WordPress Migrator
+# Offload Media Importer
 
-Plugin WordPress qui **détecte**, **télécharge** et **importe** dans la Media Library locale les images hébergées sur un domaine externe (bucket AWS S3, CDN, CMS headless type Strapi…), **remplace** les URLs dans le contenu des articles, et synchronise les ALT depuis la Bibliothèque vers le contenu hardcodé.
+Plugin WordPress qui **détecte**, **télécharge** et **importe** dans la Bibliothèque locale les images hébergées sur un domaine externe (bucket AWS S3, CDN Cloudflare/KeyCDN, CMS headless type Strapi…), **remplace automatiquement** les URLs dans le contenu des articles, et **synchronise** les ALT depuis la Bibliothèque vers le HTML hardcodé des posts.
 
 ## Prérequis
 
@@ -15,7 +15,7 @@ cd wp-content/plugins
 git clone https://github.com/vuckro/aws-s3-wordpress-migrator.git
 ```
 
-Puis activer depuis `wp-admin → Extensions` et ouvrir `Outils → AWS S3 Migrator`.
+Puis activer depuis `wp-admin → Extensions` et ouvrir `Outils → Offload Media Importer`.
 
 ## Interface
 
@@ -27,7 +27,7 @@ Configure les sources (ou laisse vide pour détection auto de toute image extern
 ### File d'attente
 L'espace de travail central. Quatre sections empilées :
 
-1. **Migration** — tableau paginé des images détectées, avec filtres par statut et hôte. Dry-run + option "Remplacer URLs après import" par session. Bouton "Tout migrer" séquentiel avec Stop.
+1. **Import** — tableau paginé des images détectées, avec filtres par statut et hôte. Bouton "Tout importer" séquentiel avec Stop. L'import télécharge l'image, l'insère dans la Bibliothèque et remplace automatiquement son URL dans le contenu des articles.
 
 2. **Transformer les ALT / Titres** — règle « Si… alors… » pour nettoyer en masse les ALT et titres avant import. Typique : `Si ALT = "xxx" → Copier depuis le Titre`. Preview puis Appliquer.
 
@@ -110,18 +110,17 @@ Apply OK → DELETE. Re-scan reconstruit depuis l'état courant.
 
 | Clé | Défaut | But |
 |---|---|---|
-| `wks3m_source_hosts` | `[]` | Array de hosts à scanner |
-| `wks3m_auto_detect_external` | `1` | Si hosts vide, scanner toute image externe |
-| `wks3m_strip_strapi_prefixes` | `1` | Grouper les variantes Strapi |
-| `wks3m_defer_thumbnails` | `0` | Skip `wp_generate_attachment_metadata()` |
+| `wks3m_source_hosts` | `[]` | Array de hosts à scanner (vide = détection auto) |
+| `wks3m_defer_thumbnails` | `0` | Skip `wp_generate_attachment_metadata()` à l\'import |
 | `wks3m_db_version` | `1.7.0` | Migrations de schéma |
 
-Concurrence fixée à 1 (séquentiel, safe), retries à 3 — non configurables par choix.
+Les autres réglages sont fixés en dur par souci de simplicité : détection auto toujours active, regroupement Strapi toujours actif, concurrence séquentielle (1), retries = 3, remplacement d\'URL toujours après import.
 
 ## WP-CLI
 
 ```bash
-wp wks3m migrate --replace --defer-thumbnails
+wp wks3m migrate                          # import + URL replace pour tout ce qui est en attente
+wp wks3m migrate --defer-thumbnails       # import rapide, thumbs générés plus tard
 wp wks3m migrate --status=failed --limit=500
 wp wks3m finalize-thumbnails
 ```

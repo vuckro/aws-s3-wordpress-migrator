@@ -1,6 +1,6 @@
 <?php
 /**
- * Settings tab — deferred thumbnails option + import options reference.
+ * Settings tab — deferred-thumbnails toggle + finalize thumbnails action.
  *
  * @package WaasKitS3Migrator
  */
@@ -27,10 +27,10 @@ $perf_saved = ! empty( $_GET['perf_saved'] );
 					<td>
 						<label>
 							<input type="checkbox" id="wks3m-defer-thumbs" name="defer_thumbnails" value="1" <?php checked( \WKS3M\Settings::defer_thumbnails() ); ?> />
-							<?php esc_html_e( 'Ne pas générer les tailles intermédiaires pendant la migration.', 'waaskit-s3-migrator' ); ?>
+							<?php esc_html_e( 'Ne pas générer les tailles intermédiaires pendant l\'import.', 'waaskit-s3-migrator' ); ?>
 						</label>
 						<p class="description">
-							<?php esc_html_e( 'Accélère fortement l\'import (30–50 % par grosse image). Les thumbnails sont générés plus tard via le bouton ci-dessous ou la commande `wp media regenerate --only-missing`. Aucune perte de qualité.', 'waaskit-s3-migrator' ); ?>
+							<?php esc_html_e( 'Accélère fortement l\'import sur les grosses images (jusqu\'à 50 %). Les thumbnails sont générés plus tard via le bouton ci-dessous. Aucune perte de qualité.', 'waaskit-s3-migrator' ); ?>
 						</p>
 					</td>
 				</tr>
@@ -68,24 +68,6 @@ $perf_saved = ! empty( $_GET['perf_saved'] );
 		<p class="wks3m-progress-label"></p>
 	</div>
 	<p class="description">
-		<?php esc_html_e( 'Alternative : lance `wp media regenerate --only-missing` via WP-CLI si disponible.', 'waaskit-s3-migrator' ); ?>
-	</p>
-</div>
-
-<div class="wks3m-panel">
-	<h2><?php esc_html_e( 'Options d\'import', 'waaskit-s3-migrator' ); ?></h2>
-	<p class="description"><?php esc_html_e( 'Ces options se règlent dans la barre de la File d\'attente et s\'appliquent à chaque migration (unitaire ou en masse).', 'waaskit-s3-migrator' ); ?></p>
-	<ul class="wks3m-options-summary">
-		<li><strong><?php esc_html_e( 'Dry-run', 'waaskit-s3-migrator' ); ?></strong> — <?php esc_html_e( 'simule l\'import sans rien télécharger ni écrire.', 'waaskit-s3-migrator' ); ?></li>
-		<li><strong><?php esc_html_e( 'Remplacer URLs après import', 'waaskit-s3-migrator' ); ?></strong> — <?php esc_html_e( 'enchaîne automatiquement le remplacement dans le contenu des articles.', 'waaskit-s3-migrator' ); ?></li>
-	</ul>
-	<p class="description">
-		<?php
-		printf(
-			/* translators: %s: Queue link */
-			esc_html__( 'Migration, transformation des ALT, synchro et nettoyage des données : tout est dans %s.', 'waaskit-s3-migrator' ),
-			'<a href="' . \WKS3M\Admin\View_Helper::tab_url( 'queue' ) . '"><strong>' . esc_html__( 'File d\'attente', 'waaskit-s3-migrator' ) . '</strong></a>'
-		);
-		?>
+		<?php esc_html_e( 'Alternative via WP-CLI : `wp media regenerate --only-missing`.', 'waaskit-s3-migrator' ); ?>
 	</p>
 </div>

@@ -119,14 +119,12 @@ $revisions_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WH
 	</form>
 
 	<div class="wks3m-bulk-bar">
-		<label><input type="checkbox" id="wks3m-dry-run" checked /> <?php esc_html_e( 'Dry-run', 'waaskit-s3-migrator' ); ?></label>
-		<label><input type="checkbox" id="wks3m-auto-replace" checked /> <?php esc_html_e( 'Remplacer URLs après import', 'waaskit-s3-migrator' ); ?></label>
-		<span class="wks3m-bulk-bar-sep"></span>
 		<button type="button" class="button button-primary" id="wks3m-bulk-all">
-			<?php printf( esc_html__( 'Tout migrer (%d en attente)', 'waaskit-s3-migrator' ), (int) ( $counts['pending'] ?? 0 ) ); ?>
+			<?php printf( esc_html__( 'Tout importer (%d en attente)', 'waaskit-s3-migrator' ), (int) ( $counts['pending'] ?? 0 ) ); ?>
 		</button>
 		<button type="button" class="button" id="wks3m-bulk-stop" hidden><?php esc_html_e( 'Stop', 'waaskit-s3-migrator' ); ?></button>
 		<span class="spinner" id="wks3m-bulk-spinner" style="float:none;"></span>
+		<span class="description" style="margin-left:.4em;"><?php esc_html_e( 'L\'import télécharge l\'image, l\'insère dans la Bibliothèque et remplace l\'URL dans le contenu des articles.', 'waaskit-s3-migrator' ); ?></span>
 	</div>
 
 	<div id="wks3m-bulk-progress" class="wks3m-progress" hidden>
@@ -177,7 +175,7 @@ $revisions_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WH
 							<?php elseif ( 'imported' === $row->status() ) : ?>
 								<button type="button" class="button wks3m-replace-btn" data-id="<?php echo (int) $row->id(); ?>"><?php esc_html_e( 'Remplacer URLs', 'waaskit-s3-migrator' ); ?></button>
 							<?php else : ?>
-								<button type="button" class="button button-primary wks3m-import-btn" data-id="<?php echo (int) $row->id(); ?>"><?php esc_html_e( 'Migrer', 'waaskit-s3-migrator' ); ?></button>
+								<button type="button" class="button button-primary wks3m-import-btn" data-id="<?php echo (int) $row->id(); ?>"><?php esc_html_e( 'Importer', 'waaskit-s3-migrator' ); ?></button>
 							<?php endif; ?>
 						</td>
 					</tr>
@@ -224,25 +222,18 @@ $revisions_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WH
 				<th scope="row"><label><?php esc_html_e( 'Action', 'waaskit-s3-migrator' ); ?></label></th>
 				<td>
 					<select id="wks3m-tr-action">
-						<option value="from_title"><?php esc_html_e( 'Copier depuis le Titre', 'waaskit-s3-migrator' ); ?></option>
-						<option value="from_alt"><?php esc_html_e( 'Copier depuis l\'ALT', 'waaskit-s3-migrator' ); ?></option>
+						<option value="from_title"><?php esc_html_e( 'Copier depuis le Titre dérivé', 'waaskit-s3-migrator' ); ?></option>
 						<option value="set_literal"><?php esc_html_e( 'Définir une valeur', 'waaskit-s3-migrator' ); ?></option>
-						<option value="remove_substring"><?php esc_html_e( 'Supprimer la chaîne', 'waaskit-s3-migrator' ); ?></option>
 						<option value="clear"><?php esc_html_e( 'Vider', 'waaskit-s3-migrator' ); ?></option>
 					</select>
 					<input type="text" id="wks3m-tr-action-value" class="regular-text" placeholder="" hidden />
 				</td>
 			</tr>
-			<tr>
-				<th scope="row"><?php esc_html_e( 'Propagation', 'waaskit-s3-migrator' ); ?></th>
-				<td>
-					<label><input type="checkbox" id="wks3m-tr-update-attachments" checked />
-						<?php esc_html_e( 'Mettre à jour aussi les attachments déjà importés (postmeta ALT / post_title).', 'waaskit-s3-migrator' ); ?>
-					</label>
-				</td>
-			</tr>
 		</tbody>
 	</table>
+	<p class="description">
+		<?php esc_html_e( 'La règle agit sur les lignes détectées au scan ET sur les attachments déjà importés (leur postmeta ALT / titre est mis à jour en même temps).', 'waaskit-s3-migrator' ); ?>
+	</p>
 
 	<p>
 		<button type="button" class="button" id="wks3m-tr-preview-btn"><?php esc_html_e( 'Aperçu', 'waaskit-s3-migrator' ); ?></button>

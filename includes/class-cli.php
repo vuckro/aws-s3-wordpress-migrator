@@ -34,29 +34,21 @@ class CLI {
 	 * [--status=<status>]
 	 * : Only rows in this status. Default: pending. One of pending|failed|imported.
 	 *
-	 * [--replace]
-	 * : Also replace URLs in post_content after each successful import.
-	 *
 	 * [--defer-thumbnails]
 	 * : Skip wp_generate_attachment_metadata() during import (run finalize-thumbnails later).
 	 *
-	 * [--dry-run]
-	 * : Simulate without downloading or writing anything.
-	 *
 	 * ## EXAMPLES
 	 *
-	 *     wp wks3m migrate --replace
+	 *     wp wks3m migrate
 	 *     wp wks3m migrate --status=failed --limit=100
-	 *     wp wks3m migrate --defer-thumbnails --replace
+	 *     wp wks3m migrate --defer-thumbnails
 	 *
 	 * @when after_wp_load
 	 */
 	public function migrate( array $args, array $assoc ): void {
-		$status  = isset( $assoc['status'] ) ? sanitize_key( (string) $assoc['status'] ) : 'pending';
-		$limit   = isset( $assoc['limit'] ) ? max( 1, (int) $assoc['limit'] ) : 100000;
-		$replace = ! empty( $assoc['replace'] );
-		$defer   = ! empty( $assoc['defer-thumbnails'] );
-		$dry     = ! empty( $assoc['dry-run'] );
+		$status = isset( $assoc['status'] ) ? sanitize_key( (string) $assoc['status'] ) : 'pending';
+		$limit  = isset( $assoc['limit'] ) ? max( 1, (int) $assoc['limit'] ) : 100000;
+		$defer  = ! empty( $assoc['defer-thumbnails'] );
 
 		$store = Plugin::instance()->mapping_store();
 		$ids   = $store->ids_by_status( $status, $limit );
@@ -66,10 +58,10 @@ class CLI {
 			return;
 		}
 
-		\WP_CLI::log( sprintf( '%d row(s) to process (status=%s, replace=%s, defer=%s, dry=%s)',
-			$total, $status, $replace ? 'yes' : 'no', $defer ? 'yes' : 'no', $dry ? 'yes' : 'no' ) );
+		\WP_CLI::log( sprintf( '%d row(s) to process (status=%s, defer=%s)',
+			$total, $status, $defer ? 'yes' : 'no' ) );
 
-		$progress = \WP_CLI\Utils\make_progress_bar( 'Migrating', $total );
+		$progress = \WP_CLI\Utils\make_progress_bar( 'Importing', $total );
 		$importer = new Importer();
 		$replacer = new Replacer();
 		$ok       = 0;
@@ -78,10 +70,6 @@ class CLI {
 		foreach ( $ids as $row_id ) {
 			$row = $store->get( (int) $row_id );
 			if ( ! $row ) { $ko++; $progress->tick(); continue; }
-
-			if ( $dry ) {
-				$ok++; $progress->tick(); continue;
-			}
 
 			$attachment_id = $row->attachment_id();
 			if ( ! $row->is_imported() ) {
@@ -97,7 +85,7 @@ class CLI {
 				$row = $store->get( (int) $row_id );
 			}
 
-			if ( $replace && $row ) {
+			if ( $row ) {
 				$rep = $replacer->replace_for_row( $row, $attachment_id );
 				if ( empty( $rep['errors'] ) && (int) $rep['posts_updated'] > 0 ) {
 					$store->mark_replaced( (int) $row_id );

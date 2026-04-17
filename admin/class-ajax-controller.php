@@ -71,9 +71,7 @@ class Ajax_Controller {
 public function import_row(): void {
 		$this->guard();
 
-		$id           = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
-		$dry_run      = Util::bool_param( $_POST['dry_run'] ?? null, true );
-		$auto_replace = Util::bool_param( $_POST['auto_replace'] ?? null, false );
+		$id = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
 
 		$store = Plugin::instance()->mapping_store();
 		$row   = $store->get( $id );
@@ -81,15 +79,7 @@ public function import_row(): void {
 			wp_send_json_error( [ 'message' => 'row_not_found' ], 404 );
 		}
 
-		$importer = new Importer();
-
-		if ( $dry_run ) {
-			wp_send_json_success( [
-				'dry_run' => true,
-				'preview' => $importer->dry_run( $row ),
-			] );
-		}
-
+		$importer      = new Importer();
 		$attachment_id = $row->attachment_id();
 		if ( ! $row->is_imported() ) {
 			// Read per-request override, fallback to global setting.
@@ -106,8 +96,9 @@ public function import_row(): void {
 			$row = $store->get( $id );
 		}
 
+		// Always rewrite URLs in post_content after a successful import.
 		$replaced = false;
-		if ( $auto_replace && $row ) {
+		if ( $row ) {
 			$rep = ( new Replacer() )->replace_for_row( $row, $attachment_id );
 			if ( empty( $rep['errors'] ) && $rep['posts_updated'] > 0 ) {
 				$store->mark_replaced( $id );
@@ -116,7 +107,6 @@ public function import_row(): void {
 		}
 
 		wp_send_json_success( [
-			'dry_run'        => false,
 			'attachment_id'  => $attachment_id,
 			'attachment_url' => (string) wp_get_attachment_url( $attachment_id ),
 			'status'         => $replaced ? 'replaced' : 'imported',
@@ -174,16 +164,15 @@ public function import_row(): void {
 
 	private function read_transform_rule(): array {
 		return [
-			'field'              => sanitize_key( (string) ( $_POST['field'] ?? '' ) ),
-			'condition'          => [
+			'field'     => sanitize_key( (string) ( $_POST['field'] ?? '' ) ),
+			'condition' => [
 				'type'  => sanitize_key( (string) ( $_POST['condition_type'] ?? '' ) ),
 				'value' => isset( $_POST['condition_value'] ) ? (string) wp_unslash( $_POST['condition_value'] ) : '',
 			],
-			'action'             => [
+			'action'    => [
 				'type'  => sanitize_key( (string) ( $_POST['action_type'] ?? '' ) ),
 				'value' => isset( $_POST['action_value'] ) ? (string) wp_unslash( $_POST['action_value'] ) : '',
 			],
-			'update_attachments' => Util::bool_param( $_POST['update_attachments'] ?? null, true ),
 		];
 	}
 
