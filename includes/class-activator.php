@@ -12,15 +12,20 @@ defined( 'ABSPATH' ) || exit;
 class Activator {
 
 	public const TABLE_VERSION_OPTION = 'wks3m_db_version';
-	public const CURRENT_DB_VERSION   = '1.3.0';
+	public const CURRENT_DB_VERSION   = '1.4.0';
 
 	public static function table_name(): string {
 		global $wpdb;
 		return $wpdb->prefix . 'wks3m_migration_log';
 	}
 
+	public static function alt_diff_table_name(): string {
+		global $wpdb;
+		return $wpdb->prefix . 'wks3m_alt_diff';
+	}
+
 	public static function activate(): void {
-		self::install_table();
+		self::install_tables();
 		self::install_default_options();
 	}
 
@@ -35,16 +40,29 @@ class Activator {
 		add_option( 'wks3m_source_hosts', [] );
 		add_option( 'wks3m_auto_detect_external', 1 );
 		add_option( 'wks3m_strip_strapi_prefixes', 1 );
-		add_option( 'wks3m_concurrency', 3 );
 		add_option( 'wks3m_defer_thumbnails', 0 );
-		add_option( 'wks3m_download_retries', 3 );
 	}
 
 	public static function deactivate(): void {
-		// Keep data in place. Uninstall.php drops the table.
+		// Keep data in place. Uninstall.php drops tables.
 	}
 
+	/**
+	 * Install / upgrade both schema tables in one pass. dbDelta() is idempotent.
+	 */
+	public static function install_tables(): void {
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		self::install_migration_log_table();
+		self::install_alt_diff_table();
+		update_option( self::TABLE_VERSION_OPTION, self::CURRENT_DB_VERSION );
+	}
+
+	/** @deprecated retained for back-compat with older Plugin::boot() calls. */
 	public static function install_table(): void {
+		self::install_tables();
+	}
+
+	private static function install_migration_log_table(): void {
 		global $wpdb;
 
 		$table           = self::table_name();
@@ -73,9 +91,39 @@ class Activator {
 			KEY source_host (source_host)
 		) {$charset_collate};";
 
-		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
+	}
 
-		update_option( self::TABLE_VERSION_OPTION, self::CURRENT_DB_VERSION );
+	/**
+	 * Alt divergences found during the Synchro ALT scan.
+	 *
+	 * One row per (post_id, src) pair where the <img>'s alt in content differs
+	 * from _wp_attachment_image_alt on the resolved attachment.
+	 */
+	private static function install_alt_diff_table(): void {
+		global $wpdb;
+
+		$table           = self::alt_diff_table_name();
+		$charset_collate = $wpdb->get_charset_collate();
+
+		$sql = "CREATE TABLE {$table} (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			post_id BIGINT UNSIGNED NOT NULL,
+			attachment_id BIGINT UNSIGNED NOT NULL,
+			src VARCHAR(500) NOT NULL,
+			content_alt TEXT NULL,
+			library_alt TEXT NULL,
+			status VARCHAR(20) NOT NULL DEFAULT 'diff',
+			error_message TEXT NULL,
+			scanned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			applied_at DATETIME NULL,
+			rolled_back_at DATETIME NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY post_src (post_id, src(191)),
+			KEY status (status),
+			KEY attachment_id (attachment_id)
+		) {$charset_collate};";
+
+		dbDelta( $sql );
 	}
 }

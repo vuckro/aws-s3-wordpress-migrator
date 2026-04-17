@@ -340,83 +340,174 @@
 		startBulk(ids);
 	}
 
-	/* ---------- Settings: Transform rule ---------- */
+	/* ---------- Alt sync: scan ---------- */
 
-	function transformRule() {
-		return {
-			field:              $('#wks3m-tr-field').val(),
-			condition_type:     $('#wks3m-tr-cond').val(),
-			condition_value:    $('#wks3m-tr-cond-value').val(),
-			action_type:        $('#wks3m-tr-action').val(),
-			action_value:       $('#wks3m-tr-action-value').val(),
-			update_attachments: $('#wks3m-tr-update-attachments').is(':checked') ? 1 : 0
-		};
-	}
+	var altScan = null;
 
-	function refreshTransformInputs() {
-		var cond = $('#wks3m-tr-cond').val();
-		$('#wks3m-tr-cond-value').prop('hidden', cond === 'empty');
-
-		var action = $('#wks3m-tr-action').val();
-		$('#wks3m-tr-action-value').prop('hidden', action !== 'set_literal' && action !== 'remove_substring');
-
-		$('#wks3m-tr-apply-btn').prop('disabled', true);
-	}
-
-	function transformValid(rule) {
-		if (!rule.field || !rule.condition_type || !rule.action_type) return false;
-		if (rule.condition_type !== 'empty' && !rule.condition_value)  return false;
-		if (rule.action_type === 'remove_substring' && !rule.action_value) return false;
-		return true;
-	}
-
-	function renderTransformPreview(data) {
-		$('#wks3m-tr-results').prop('hidden', false)
-			.find('.wks3m-tr-counts').html(
-				'<p><strong>' + data.rows + '</strong> ligne(s) seraient modifiées · ' +
-				'<strong>' + data.attachments + '</strong> attachment(s) déjà importé(s) concerné(s).</p>'
-			);
-		var $sample = $('#wks3m-tr-sample');
-		var $tbody  = $sample.find('tbody').empty();
-		(data.sample || []).forEach(function (s) {
-			$tbody.append(
-				'<tr><td>#' + s.id + '</td>' +
-				'<td>' + esc(s.before) + '</td>' +
-				'<td><strong>' + esc(s.after) + '</strong></td></tr>'
-			);
-		});
-		$sample.prop('hidden', !(data.sample && data.sample.length));
-		$('#wks3m-tr-apply-btn').prop('disabled', data.rows === 0);
-	}
-
-	function renderTransformResult(data) {
-		$('#wks3m-tr-results').prop('hidden', false)
-			.find('.wks3m-tr-counts').html(
-				'<div class="notice notice-success inline"><p>' +
-				'<strong>' + data.rows_updated + '</strong> lignes mises à jour · ' +
-				'<strong>' + data.attachments_updated + '</strong> attachments synchronisés.' +
-				'</p></div>'
-			);
-		$('#wks3m-tr-sample').prop('hidden', true);
-		$('#wks3m-tr-apply-btn').prop('disabled', true);
-	}
-
-	function runTransform(action, renderer, confirmFirst) {
-		var rule = transformRule();
-		if (!transformValid(rule)) { alert(T.tr_invalid); return; }
-		if (confirmFirst && !window.confirm(T.tr_confirm)) return;
-		$('#wks3m-tr-spinner').addClass('is-active');
-		if (confirmFirst) $('#wks3m-tr-apply-btn').prop('disabled', true);
-		post(action, rule)
+	function runAltScanBatch() {
+		if (!altScan || !altScan.running) return;
+		post('wks3m_alt_scan_batch', { offset: altScan.offset, limit: altScan.limit })
 			.done(function (resp) {
-				$('#wks3m-tr-spinner').removeClass('is-active');
-				if (!resp || !resp.success) return alert(errMsg(resp));
-				renderer(resp.data);
+				if (!resp || !resp.success) return endAltScan(true);
+				altScan.total      = resp.data.total;
+				altScan.processed += resp.data.processed;
+				altScan.imgs      += resp.data.imgs_scanned;
+				altScan.diffs     += resp.data.diffs_found;
+				altScan.offset    = resp.data.next_offset;
+				updateAltScanUI();
+				if (resp.data.processed > 0 && altScan.offset < altScan.total) {
+					setTimeout(runAltScanBatch, 50);
+				} else {
+					endAltScan(false);
+				}
 			})
-			.fail(function () {
-				$('#wks3m-tr-spinner').removeClass('is-active');
-				alert(T.error);
-			});
+			.fail(function () { endAltScan(true); });
+	}
+
+	function updateAltScanUI() {
+		var pct = altScan.total > 0 ? Math.min(100, Math.round((altScan.processed / altScan.total) * 100)) : 0;
+		renderProgress($('#wks3m-alt-scan-progress'), pct, pct + '% — ' + altScan.processed + ' / ' + altScan.total);
+		$('#wks3m-alt-scan-summary').prop('hidden', false)
+			.find('.processed').text(altScan.processed + ' / ' + altScan.total).end()
+			.find('.imgs').text(altScan.imgs).end()
+			.find('.diffs').text(altScan.diffs);
+	}
+
+	function endAltScan(isError) {
+		if (!altScan) return;
+		altScan.running = false;
+		$('#wks3m-alt-scan-spinner').removeClass('is-active');
+		$('#wks3m-alt-scan-start').prop('disabled', false);
+		if (isError) { alert(T.error); return; }
+		$('#wks3m-alt-scan-done').prop('hidden', false);
+	}
+
+	function startAltScan() {
+		altScan = {
+			offset: 0,
+			limit: parseInt($('#wks3m-alt-scan-batch').val(), 10) || 50,
+			total: 0, processed: 0, imgs: 0, diffs: 0,
+			running: true
+		};
+		$('#wks3m-alt-scan-start').prop('disabled', true);
+		$('#wks3m-alt-scan-spinner').addClass('is-active');
+		$('#wks3m-alt-scan-done').prop('hidden', true);
+		renderProgress($('#wks3m-alt-scan-progress'), 0, T.alt_scan_progress);
+		runAltScanBatch();
+	}
+
+	/* ---------- Alt sync: per-row apply / rollback ---------- */
+
+	function handleAltApply(e) {
+		var $btn = $(e.currentTarget);
+		var id   = parseInt($btn.data('id'), 10);
+		$btn.prop('disabled', true);
+		post('wks3m_alt_apply_diff', { id: id })
+			.done(function (resp) {
+				var $row = $btn.closest('tr');
+				if (!resp || !resp.success) { $btn.prop('disabled', false); alert(errMsg(resp)); return; }
+				setStatus($row, 'applied');
+				$btn.replaceWith('<button type="button" class="button wks3m-alt-rollback-btn" data-id="' + id + '">↺ ' + T.rolled_back + '</button>');
+			})
+			.fail(function () { $btn.prop('disabled', false); alert(T.error); });
+	}
+
+	function handleAltRollback(e) {
+		if (!window.confirm(T.confirm_alt_rollback)) return;
+		var $btn = $(e.currentTarget);
+		var id   = parseInt($btn.data('id'), 10);
+		$btn.prop('disabled', true);
+		post('wks3m_alt_rollback_diff', { id: id })
+			.done(function (resp) {
+				var $row = $btn.closest('tr');
+				if (!resp || !resp.success) { $btn.prop('disabled', false); alert(errMsg(resp)); return; }
+				setStatus($row, 'rolled_back');
+				$btn.replaceWith('<em>' + T.rolled_back + '</em>');
+			})
+			.fail(function () { $btn.prop('disabled', false); alert(T.error); });
+	}
+
+	/* ---------- Alt sync: bulk apply (parallel worker pool) ---------- */
+
+	var altBulk = null;
+
+	function drawAltBulk(prefix) {
+		var done = altBulk.ok + altBulk.ko;
+		var pct = altBulk.total > 0 ? Math.round((done / altBulk.total) * 100) : 0;
+		var label = (prefix ? prefix + ' — ' : '') + pct + '% — ' +
+			done + ' / ' + altBulk.total + ' (✔ ' + altBulk.ok + ' · ✖ ' + altBulk.ko + ')';
+		renderProgress($('#wks3m-alt-bulk-progress'), pct, label);
+	}
+
+	function altBulkWorker() {
+		if (!altBulk) return;
+		if (!altBulk.running) { altBulkWorkerDone(); return; }
+		if (altBulk.cursor >= altBulk.total) { altBulkWorkerDone(); return; }
+
+		var id = altBulk.ids[altBulk.cursor++];
+		post('wks3m_alt_apply_diff', { id: id }).always(function (resp) {
+			var $row = $('tr[data-diff-id="' + id + '"]');
+			if (resp && resp.success) {
+				altBulk.ok++;
+				if ($row.length) setStatus($row, 'applied');
+			} else {
+				altBulk.ko++;
+			}
+			drawAltBulk();
+			setTimeout(altBulkWorker, 20);
+		});
+	}
+
+	function altBulkWorkerDone() {
+		if (!altBulk) return;
+		altBulk.active--;
+		if (altBulk.active <= 0) endAltBulk(!altBulk.running);
+	}
+
+	function endAltBulk(stopped) {
+		var summary = altBulk;
+		$('#wks3m-alt-bulk-spinner').removeClass('is-active');
+		$('#wks3m-alt-bulk-stop').prop('hidden', true).prop('disabled', false).text(T.stop);
+		$('#wks3m-alt-bulk-apply').prop('disabled', false);
+		if (!summary) return;
+		drawAltBulk(stopped ? T.stopped : T.done);
+		altBulk = null;
+		if (summary.total === 0) return;
+		setTimeout(function () {
+			var head = (stopped ? T.stopped : T.done) + ' (✔ ' + summary.ok + ' · ✖ ' + summary.ko + ')';
+			if (window.confirm(head + '\n\n' + T.reload_prompt)) location.reload();
+		}, 200);
+	}
+
+	function startAltBulk(ids) {
+		if (!ids || !ids.length) { alert(T.alt_nothing); return; }
+		if (!window.confirm(T.confirm_alt_apply)) return;
+
+		var n = Math.min(concurrency(), ids.length);
+		altBulk = {
+			ids: ids, cursor: 0, total: ids.length,
+			ok: 0, ko: 0, running: true, active: n
+		};
+		$('#wks3m-alt-bulk-apply').prop('disabled', true);
+		$('#wks3m-alt-bulk-stop').prop('hidden', false);
+		$('#wks3m-alt-bulk-spinner').addClass('is-active');
+		drawAltBulk(T.alt_apply_progress);
+		for (var i = 0; i < n; i++) altBulkWorker();
+	}
+
+	function handleAltBulkApply() {
+		post('wks3m_alt_diff_ids')
+			.done(function (resp) {
+				if (!resp || !resp.success) return alert(T.error);
+				startAltBulk(resp.data.ids || []);
+			})
+			.fail(function () { alert(T.error); });
+	}
+
+	function handleAltBulkStop() {
+		if (!altBulk) return;
+		altBulk.running = false;
+		$('#wks3m-alt-bulk-stop').prop('disabled', true).text(T.stopping);
 	}
 
 	/* ---------- Bind ---------- */
@@ -442,19 +533,11 @@
 		$('#wks3m-finalize-thumbs').on('click', handleFinalize);
 		$('#wks3m-finalize-stop').on('click',   handleFinalizeStop);
 
-		// Transform.
-		if ($('#wks3m-tr-form').length) {
-			refreshTransformInputs();
-			$('#wks3m-tr-cond, #wks3m-tr-action').on('change', refreshTransformInputs);
-			$('#wks3m-tr-form :input').on('input', function () {
-				$('#wks3m-tr-apply-btn').prop('disabled', true);
-			});
-			$('#wks3m-tr-preview-btn').on('click', function () {
-				runTransform('wks3m_transform_preview', renderTransformPreview, false);
-			});
-			$('#wks3m-tr-apply-btn').on('click', function () {
-				runTransform('wks3m_transform_apply', renderTransformResult, true);
-			});
-		}
+		// Alt sync.
+		$('#wks3m-alt-scan-start').on('click',   startAltScan);
+		$('#wks3m-alt-bulk-apply').on('click',   handleAltBulkApply);
+		$('#wks3m-alt-bulk-stop').on('click',    handleAltBulkStop);
+		$(document).on('click', '.wks3m-alt-apply-btn',    handleAltApply);
+		$(document).on('click', '.wks3m-alt-rollback-btn', handleAltRollback);
 	});
 }(jQuery));

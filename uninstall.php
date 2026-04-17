@@ -12,9 +12,14 @@ defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
 
 global $wpdb;
 
-// Current table.
-$table = $wpdb->prefix . 'wks3m_migration_log';
-$wpdb->query( "DROP TABLE IF EXISTS {$table}" );
+// Current tables.
+$tables = [
+	$wpdb->prefix . 'wks3m_migration_log',
+	$wpdb->prefix . 'wks3m_alt_diff',
+];
+foreach ( $tables as $t ) {
+	$wpdb->query( "DROP TABLE IF EXISTS {$t}" );
+}
 
 // Legacy table from the pre-white-label version.
 $legacy = $wpdb->prefix . 's3_migration_log';

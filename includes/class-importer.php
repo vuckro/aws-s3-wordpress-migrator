@@ -4,8 +4,9 @@
  * writes alt/title/source metadata.
  *
  * The values written come straight from the Migration_Row (alt_text,
- * derived_title). To influence them, use the Transform tool on the Settings
- * tab before importing — the import itself has no transformation knobs.
+ * derived_title). Once an image is in the library, edit its ALT directly
+ * from Média → Bibliothèque, then use the Synchro ALT tab to propagate the
+ * change into post_content across all affected posts.
  *
  * @package WaasKitS3Migrator
  */

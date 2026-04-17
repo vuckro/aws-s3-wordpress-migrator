@@ -27,7 +27,7 @@ class Plugin {
 
 		// Safety-net: upgrade the schema + seed new option defaults on version bump.
 		if ( is_admin() && get_option( Activator::TABLE_VERSION_OPTION ) !== Activator::CURRENT_DB_VERSION ) {
-			Activator::install_table();
+			Activator::install_tables();
 			Activator::install_default_options();
 		}
 
@@ -62,5 +62,13 @@ class Plugin {
 
 	public function mapping_store(): Mapping_Store {
 		return new Mapping_Store();
+	}
+
+	public function alt_diff_store(): Alt_Diff_Store {
+		return new Alt_Diff_Store();
+	}
+
+	public function alt_scanner(): Alt_Scanner {
+		return new Alt_Scanner( $this->alt_diff_store() );
 	}
 }

@@ -26,16 +26,7 @@ Onglet **Scan**. Configure les sources — soit une liste de domaines à cherche
 
 Clique **Lancer le scan**. Le plugin parcourt `wp_posts` par lots, détecte toutes les images externes, extrait leur `alt` depuis le HTML, dérive un titre lisible depuis le nom de fichier, et persiste tout en base dans `{prefix}wks3m_migration_log`.
 
-### 2. Nettoyage métadonnées *(optionnel)*
-
-Onglet **Réglages → Transformer les ALT / Titres**. Construit une règle :
-- **Champ** : ALT ou Titre
-- **Condition** : Contient / Égale / Est vide
-- **Action** : Copier depuis le Titre / Copier depuis l'ALT / Définir une valeur / Supprimer la chaîne / Vider
-
-Exemple : *"Si l'ALT contient 'xxx', copier depuis le Titre"*. Preview avant apply, option pour propager aux attachments déjà importés.
-
-### 3. Migration
+### 2. Migration
 
 Onglet **File d'attente**. Filtres par statut / hôte, pagination 25/page. Deux toggles :
 - **Dry-run** — simule sans télécharger
@@ -48,6 +39,14 @@ Actions :
 - **Stop** interrompt proprement
 
 Chaque import crée un attachment WordPress avec le `alt`, le titre, et deux postmeta (`_wks3m_source_url`, `_wks3m_source_host`) pour la traçabilité. Le replacer met à jour le `post_content` des articles affectés (blocs Gutenberg compris : `id` dans le commentaire JSON, classe `wp-image-{id}` sur l'`<img>`) et sauvegarde l'ancien contenu dans `_wks3m_backup_{row_id}` pour rollback.
+
+### 3. Synchro ALT *(optionnel)*
+
+Onglet **Synchro ALT**. Après avoir édité les ALT dans la Bibliothèque WordPress, ce tab propage les nouvelles valeurs dans le `post_content` des articles où ces images apparaissent en dur (`<img alt="…">`).
+
+Le pivot est le **src URL** résolu par `attachment_url_to_postid()` (core WP) — pas la classe `wp-image-N`, qui n'est pas fiable après un replace d'URL en masse.
+
+Flow : **Lancer le scan** → remplit `wp_wks3m_alt_diff` avec une ligne par `<img>` divergent → tableau filtrable/paginé → **Remplacer** par ligne ou **Tout synchroniser** en masse → backup par ligne dans `_wks3m_alt_backup_{diff_id}` → **Rollback** granulaire disponible.
 
 ### 4. Historique & Rollback
 
@@ -71,7 +70,10 @@ waaskit-s3-migrator/
 │   ├── class-importer.php         # wp_insert_attachment + postmeta
 │   ├── class-replacer.php         # str_replace + Gutenberg-aware rewrite
 │   ├── class-rollback-manager.php # restore post_content from backup
-│   ├── class-transform.php        # moteur de règles ALT/Titre
+│   ├── class-alt-diff.php          # value object pour wks3m_alt_diff
+│   ├── class-alt-diff-store.php    # CRUD sur wks3m_alt_diff
+│   ├── class-alt-scanner.php       # détecte les ALT divergents contenu vs biblio
+│   ├── class-alt-syncer.php        # apply + rollback par src exact
 │   ├── class-cli.php              # commandes WP-CLI (migrate, finalize-thumbnails)
 │   ├── class-logger.php
 │   └── class-util.php             # helpers partagés
@@ -82,6 +84,7 @@ waaskit-s3-migrator/
 │   └── views/
 │       ├── page-scan.php
 │       ├── page-queue.php
+│       ├── page-alt-sync.php
 │       ├── page-history.php
 │       └── page-settings.php
 ├── assets/
@@ -92,7 +95,7 @@ waaskit-s3-migrator/
 
 ## Schéma BDD
 
-Table unique `{prefix}wks3m_migration_log` :
+### `{prefix}wks3m_migration_log` (migration d'images)
 
 | Colonne | Description |
 |---|---|
@@ -107,6 +110,18 @@ Table unique `{prefix}wks3m_migration_log` :
 | `error_message` | dernier message d'erreur si `failed` |
 | `created_at`, `last_seen_at`, `replaced_at`, `rolled_back_at` | timestamps |
 
+### `{prefix}wks3m_alt_diff` (synchro ALT)
+
+| Colonne | Description |
+|---|---|
+| `id` | PK |
+| `post_id`, `src` | (UNIQUE) — une ligne par `<img>` divergent |
+| `attachment_id` | résolu par `attachment_url_to_postid()` au scan |
+| `content_alt` | alt lu dans `post_content` |
+| `library_alt` | alt live depuis `_wp_attachment_image_alt` |
+| `status` | `diff` / `applied` / `rolled_back` / `failed` |
+| `scanned_at`, `applied_at`, `rolled_back_at` | timestamps |
+
 ## Postmeta créés
 
 | Clé | Portée | But |
@@ -114,7 +129,8 @@ Table unique `{prefix}wks3m_migration_log` :
 | `_wp_attachment_image_alt` | attachment | standard WordPress |
 | `_wks3m_source_url` | attachment | URL d'origine |
 | `_wks3m_source_host` | attachment | host d'origine |
-| `_wks3m_backup_{row_id}` | post | snapshot `post_content` pour rollback |
+| `_wks3m_backup_{row_id}` | post | snapshot `post_content` pour rollback d'import |
+| `_wks3m_alt_backup_{diff_id}` | post | snapshot `post_content` pour rollback d'une synchro ALT |
 | `_wks3m_replacements` | post | log des remplacements par row |
 
 ## Options
@@ -126,18 +142,16 @@ Table unique `{prefix}wks3m_migration_log` :
 | `wks3m_strip_strapi_prefixes` | `1` | Grouper les variantes Strapi |
 | `wks3m_dry_run` | `1` | Placeholder — le toggle est par-session côté JS |
 | `wks3m_batch_size` | `10` | Placeholder |
-| `wks3m_concurrency` | `3` | Nb de migrations parallèles côté client (1-6) |
 | `wks3m_defer_thumbnails` | `0` | Skip `wp_generate_attachment_metadata()` à l'import |
-| `wks3m_download_retries` | `3` | Tentatives de download avec backoff exponentiel |
-| `wks3m_db_version` | `1.3.0` | Pour migrations de schéma |
+| `wks3m_db_version` | `1.4.0` | Pour migrations de schéma |
+
+Notes : la concurrence est fixée à 1 (séquentiel) et les retries à 3 par défaut — non configurables pour éviter les mauvaises surprises.
 
 ## Performance — gros volumes (>1000 images)
 
-Plusieurs leviers activés par défaut depuis la v1.1 :
-
-1. **Concurrence** — `Réglages → Performance` ajuste le nombre de migrations simultanées (défaut 3, max 6). Le pool de workers côté client pipeline les downloads : pendant qu'une image descend, 2 autres sont en cours → gain typique 3-5× sur sources CDN rapides.
-2. **Thumbnails différés** — coche "Thumbnails différés" pour sauter la génération des tailles WP pendant l'import. Un attachment est créé immédiatement après le download, sans regen ImageMagick (qui prend 1-5 s par image haute résolution). Une fois la migration finie, le bouton **« Générer les thumbnails manquants »** ou `wp media regenerate --only-missing` finalise le tout. Aucune perte de qualité — juste un déport dans le temps.
-3. **Retry exponentiel** — 3 tentatives par défaut (1 s / 2 s / 4 s) pour les timeouts et 5xx. Les 4xx (hors 408/429) ne sont pas réessayés (inutile).
+1. **Thumbnails différés** — coche "Thumbnails différés" pour sauter la génération des tailles WP pendant l'import. Un attachment est créé immédiatement après le download, sans regen ImageMagick (qui prend 1-5 s par image haute résolution). Une fois la migration finie, le bouton **« Générer les thumbnails manquants »** ou `wp media regenerate --only-missing` finalise le tout. Aucune perte de qualité — juste un déport dans le temps.
+2. **Retry exponentiel** — 3 tentatives (1 s / 2 s / 4 s) pour les timeouts et 5xx. Les 4xx (hors 408/429) ne sont pas réessayés (inutile).
+3. **Traitement séquentiel** — une migration à la fois côté client. Simple, prévisible, pas de saturation du host.
 
 ### WP-CLI — migration headless
 

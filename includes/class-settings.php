@@ -26,11 +26,11 @@ class Settings {
 	}
 
 	/**
-	 * Number of parallel HTTP workers for bulk migration (client-side).
-	 * Clamped to [1,6] to avoid hammering source CDNs and saturating the host.
+	 * Number of parallel HTTP workers. Fixed at 1 — sequential processing is
+	 * the safest default and removes a source of surprise for end users.
 	 */
 	public static function concurrency(): int {
-		return max( 1, min( 6, (int) get_option( 'wks3m_concurrency', 3 ) ) );
+		return 1;
 	}
 
 	/**
@@ -44,9 +44,11 @@ class Settings {
 
 	/**
 	 * Max download attempts per image (1 = no retry). Backoff grows exponentially.
+	 * Fixed at 3 — a sensible default that handles transient 5xx without
+	 * drowning slow sources.
 	 */
 	public static function download_retries(): int {
-		return max( 1, min( 5, (int) get_option( 'wks3m_download_retries', 3 ) ) );
+		return 3;
 	}
 
 	/**
