@@ -135,19 +135,54 @@ class Importer {
 	}
 
 	/**
-	 * Return the attachment IDs that still have deferred thumbnails, most recent
-	 * first. Used by the "Finaliser les thumbnails" bulk action.
+	 * Return the attachment IDs that need thumbnails regenerated.
 	 *
-	 * @return int[]
+	 * Two sources:
+	 *   1. Attachments explicitly deferred at import time (META_THUMBS_PENDING
+	 *      flag set by this plugin).
+	 *   2. Attachments whose `_wp_attachment_metadata` is missing, empty, or
+	 *      has no `sizes` array — happens when a past import failed midway
+	 *      (memory limit, image library crash, etc.) leaving the original
+	 *      file on disk but no derived sizes. The first source only captures
+	 *      cases we know about; the second catches the real leaks.
+	 *
+	 * @return int[] Attachment IDs, most recent first.
 	 */
 	public static function pending_thumbnails_ids( int $limit = 5000 ): array {
 		global $wpdb;
 		$limit = max( 1, min( 20000, $limit ) );
-		$rows  = $wpdb->get_col( $wpdb->prepare(
-			"SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s ORDER BY post_id DESC LIMIT %d",
-			self::META_THUMBS_PENDING,
-			$limit
+
+		// Source 1: plugin's deferred flag.
+		$flagged = $wpdb->get_col( $wpdb->prepare(
+			"SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s",
+			self::META_THUMBS_PENDING
 		) );
-		return array_map( 'intval', (array) $rows );
+
+		// Source 2: image attachments with missing/empty/unsized metadata.
+		$rows = $wpdb->get_results(
+			"SELECT p.ID, pm.meta_value
+			 FROM {$wpdb->posts} p
+			 LEFT JOIN {$wpdb->postmeta} pm
+			   ON pm.post_id = p.ID AND pm.meta_key = '_wp_attachment_metadata'
+			 WHERE p.post_type = 'attachment'
+			   AND p.post_mime_type LIKE 'image/%'",
+			ARRAY_A
+		);
+		$orphans = [];
+		foreach ( (array) $rows as $r ) {
+			$raw = (string) $r['meta_value'];
+			if ( '' === $raw ) {
+				$orphans[] = (int) $r['ID'];
+				continue;
+			}
+			$meta = @maybe_unserialize( $raw );
+			if ( ! is_array( $meta ) || empty( $meta['sizes'] ) || ! is_array( $meta['sizes'] ) ) {
+				$orphans[] = (int) $r['ID'];
+			}
+		}
+
+		$ids = array_values( array_unique( array_map( 'intval', array_merge( (array) $flagged, $orphans ) ) ) );
+		rsort( $ids, SORT_NUMERIC );
+		return array_slice( $ids, 0, $limit );
 	}
 }

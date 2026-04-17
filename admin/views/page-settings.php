@@ -81,7 +81,7 @@ $revisions_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WH
 
 	<hr />
 
-	<h3><?php esc_html_e( 'Finaliser les thumbnails différés', 'waaskit-s3-migrator' ); ?></h3>
+	<h3><?php esc_html_e( 'Régénérer les thumbnails manquants', 'waaskit-s3-migrator' ); ?></h3>
 	<?php
 	$pending       = \WKS3M\Importer::pending_thumbnails_ids( 20000 );
 	$pending_count = count( $pending );
@@ -89,8 +89,8 @@ $revisions_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WH
 	<p>
 		<?php
 		printf(
-			/* translators: %d: number of attachments awaiting thumbnail generation */
-			esc_html__( '%d attachment(s) importé(s) sans thumbnails.', 'waaskit-s3-migrator' ),
+			/* translators: %d: number of attachments without proper thumbnails */
+			esc_html__( '%d attachment(s) sans thumbnails — import différé, import partiel, ou génération de métadonnées jamais effectuée.', 'waaskit-s3-migrator' ),
 			(int) $pending_count
 		);
 		?>

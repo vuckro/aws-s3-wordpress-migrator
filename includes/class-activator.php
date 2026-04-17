@@ -12,7 +12,7 @@ defined( 'ABSPATH' ) || exit;
 class Activator {
 
 	public const TABLE_VERSION_OPTION = 'wks3m_db_version';
-	public const CURRENT_DB_VERSION   = '1.9.0';
+	public const CURRENT_DB_VERSION   = '2.0.0';
 
 	public static function table_name(): string {
 		global $wpdb;
@@ -97,6 +97,12 @@ class Activator {
 			$wpdb->query( "OPTIMIZE TABLE {$wpdb->postmeta}" );
 		}
 
+		if ( '' !== $prev_version && version_compare( $prev_version, '2.0.0', '<' ) ) {
+			// Pre-2.0 diffs lack content_title/library_title. Truncate and let
+			// the user re-scan so the table is consistent with the new columns.
+			$wpdb->query( 'TRUNCATE TABLE ' . self::alt_diff_table_name() );
+		}
+
 		update_option( self::TABLE_VERSION_OPTION, self::CURRENT_DB_VERSION );
 	}
 
@@ -153,6 +159,8 @@ class Activator {
 			src VARCHAR(500) NOT NULL,
 			content_alt TEXT NULL,
 			library_alt TEXT NULL,
+			content_title TEXT NULL,
+			library_title TEXT NULL,
 			error_message TEXT NULL,
 			scanned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),

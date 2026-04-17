@@ -31,6 +31,8 @@ class Alt_Diff {
 	public function src(): string         { return (string) ( $this->data['src'] ?? '' ); }
 	public function content_alt(): string { return (string) ( $this->data['content_alt'] ?? '' ); }
 	public function library_alt(): string { return (string) ( $this->data['library_alt'] ?? '' ); }
+	public function content_title(): string { return (string) ( $this->data['content_title'] ?? '' ); }
+	public function library_title(): string { return (string) ( $this->data['library_title'] ?? '' ); }
 	public function error_message(): string { return (string) ( $this->data['error_message'] ?? '' ); }
 	public function has_error(): bool     { return '' !== $this->error_message(); }
 

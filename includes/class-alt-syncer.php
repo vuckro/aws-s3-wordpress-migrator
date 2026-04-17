@@ -1,12 +1,13 @@
 <?php
 /**
- * Alt_Syncer — apply a single Alt_Diff by rewriting the <img alt> inside
- * post_content.
+ * Alt_Syncer — apply a single Alt_Diff by rewriting the <img alt> and
+ * <img title> attributes inside post_content.
  *
  * Design notes:
  *  - Matches <img> by its EXACT src attribute (not class="wp-image-N",
  *    which isn't reliable after a URL-replace pass).
- *  - Library alt is re-read live at apply time.
+ *  - Library values are re-read live at apply time (alt = postmeta
+ *    _wp_attachment_image_alt, title = attachment post_title).
  *  - Writes post_content via $wpdb->update directly — bypasses save_post
  *    hooks, revisions, and caching-plugin cascades. No clean_post_cache()
  *    either: it triggers listeners in slim-seo / Yoast / wpcode that can
@@ -30,7 +31,7 @@ class Alt_Syncer {
 	}
 
 	/**
-	 * @return array{tags_updated:int,library_alt:string,errors:string[]}
+	 * @return array{tags_updated:int,library_alt:string,library_title:string,errors:string[]}
 	 */
 	public function apply( Alt_Diff $diff ): array {
 		$post_id = $diff->post_id();
@@ -40,34 +41,36 @@ class Alt_Syncer {
 		$post = get_post( $post_id );
 		if ( ! $post ) {
 			$this->store->mark_failed( $diff->id(), 'post_not_found' );
-			return [ 'tags_updated' => 0, 'library_alt' => '', 'errors' => [ 'post_not_found' ] ];
+			return [ 'tags_updated' => 0, 'library_alt' => '', 'library_title' => '', 'errors' => [ 'post_not_found' ] ];
 		}
 
-		$library_alt = trim( (string) get_post_meta( $att_id, '_wp_attachment_image_alt', true ) );
-		if ( '' === $library_alt ) {
-			$this->store->mark_failed( $diff->id(), 'library_alt_empty' );
-			return [ 'tags_updated' => 0, 'library_alt' => '', 'errors' => [ 'library_alt_empty' ] ];
+		$library_alt   = trim( (string) get_post_meta( $att_id, '_wp_attachment_image_alt', true ) );
+		$library_title = trim( (string) get_the_title( $att_id ) );
+
+		// Skip rows where the library has nothing useful to push.
+		if ( '' === $library_alt && '' === $library_title ) {
+			$this->store->mark_failed( $diff->id(), 'library_empty' );
+			return [ 'tags_updated' => 0, 'library_alt' => '', 'library_title' => '', 'errors' => [ 'library_empty' ] ];
 		}
 
 		$original = (string) $post->post_content;
-		[ $new, $count ] = $this->rewrite_alt( $original, $src, $library_alt );
+		[ $new, $count ] = $this->rewrite_tag( $original, $src, $library_alt, $library_title );
 
 		if ( 0 === $count || $new === $original ) {
-			// Tag disappeared since the scan, or already in sync. Drop the row
-			// — nothing to fix. A fresh scan would not recreate it.
+			// Tag disappeared since the scan, or already in sync. Drop the row.
 			$this->store->delete( $diff->id() );
-			return [ 'tags_updated' => 0, 'library_alt' => $library_alt, 'errors' => [] ];
+			return [ 'tags_updated' => 0, 'library_alt' => $library_alt, 'library_title' => $library_title, 'errors' => [] ];
 		}
 
 		if ( false === $this->write_post_content( $post_id, $new ) ) {
 			global $wpdb;
 			$err = $wpdb->last_error ?: 'db_update_failed';
 			$this->store->mark_failed( $diff->id(), $err );
-			return [ 'tags_updated' => 0, 'library_alt' => $library_alt, 'errors' => [ $err ] ];
+			return [ 'tags_updated' => 0, 'library_alt' => $library_alt, 'library_title' => $library_title, 'errors' => [ $err ] ];
 		}
 
 		$this->store->delete( $diff->id() );
-		return [ 'tags_updated' => $count, 'library_alt' => $library_alt, 'errors' => [] ];
+		return [ 'tags_updated' => $count, 'library_alt' => $library_alt, 'library_title' => $library_title, 'errors' => [] ];
 	}
 
 	/**
@@ -94,30 +97,58 @@ class Alt_Syncer {
 	}
 
 	/**
-	 * Rewrite the alt attribute of every <img> whose src EXACTLY matches.
-	 * Injects alt="…" right after `<img` when the tag has none.
+	 * Rewrite alt AND title on every <img> whose src EXACTLY matches.
+	 * - Replaces the existing attribute, or injects it after `<img` if absent.
+	 * - Library empty value → attribute is left alone (we never overwrite with
+	 *   an empty string).
 	 *
-	 * @return array{0:string,1:int} [new content, tags updated]
+	 * @return array{0:string,1:int} [new content, tags modified]
 	 */
-	private function rewrite_alt( string $content, string $src, string $new_alt ): array {
+	private function rewrite_tag( string $content, string $src, string $new_alt, string $new_title ): array {
 		if ( '' === $content || '' === $src ) {
 			return [ $content, 0 ];
 		}
 
 		$pattern = '#<img\b[^>]*?\bsrc=(["\'])' . preg_quote( $src, '#' ) . '\1[^>]*>#i';
-		$esc     = htmlspecialchars( $new_alt, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 		$count   = 0;
 
-		$new = preg_replace_callback( $pattern, function ( array $m ) use ( $esc, &$count ): string {
-			$tag = $m[0];
-			if ( preg_match( '#\balt=(["\'])(.*?)\1#is', $tag ) ) {
+		$new = preg_replace_callback( $pattern, function ( array $m ) use ( $new_alt, $new_title, &$count ): string {
+			$tag     = $m[0];
+			$changed = false;
+
+			$tag = $this->upsert_attr( $tag, 'alt',   $new_alt,   $changed );
+			$tag = $this->upsert_attr( $tag, 'title', $new_title, $changed );
+
+			if ( $changed ) {
 				$count++;
-				return preg_replace( '#\balt=(["\'])(.*?)\1#is', 'alt="' . $esc . '"', $tag, 1 );
 			}
-			$count++;
-			return preg_replace( '#^<img\b#i', '<img alt="' . $esc . '"', $tag, 1 );
+			return $tag;
 		}, $content );
 
 		return [ $new ?? $content, $count ];
+	}
+
+	/**
+	 * Add or replace a single HTML attribute on an <img> tag.
+	 * No-op when $new_value is empty (we never overwrite with empty).
+	 */
+	private function upsert_attr( string $tag, string $attr, string $new_value, bool &$changed ): string {
+		if ( '' === $new_value ) {
+			return $tag;
+		}
+		$esc  = htmlspecialchars( $new_value, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$repl = $attr . '="' . $esc . '"';
+
+		if ( preg_match( '#\b' . preg_quote( $attr, '#' ) . '=(["\'])(.*?)\1#is', $tag, $m ) ) {
+			$current = trim( html_entity_decode( $m[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+			if ( $current === $new_value ) {
+				return $tag; // already right
+			}
+			$changed = true;
+			return preg_replace( '#\b' . preg_quote( $attr, '#' ) . '=(["\'])(.*?)\1#is', $repl, $tag, 1 );
+		}
+
+		$changed = true;
+		return preg_replace( '#^<img\b#i', '<img ' . $repl, $tag, 1 );
 	}
 }

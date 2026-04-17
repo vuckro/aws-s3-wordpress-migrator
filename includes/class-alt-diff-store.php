@@ -37,7 +37,9 @@ class Alt_Diff_Store {
 		int $attachment_id,
 		string $src,
 		string $content_alt,
-		string $library_alt
+		string $library_alt,
+		string $content_title = '',
+		string $library_title = ''
 	): int {
 		global $wpdb;
 		$table = $this->table();
@@ -58,6 +60,8 @@ class Alt_Diff_Store {
 					'attachment_id' => $attachment_id,
 					'content_alt'   => $content_alt,
 					'library_alt'   => $library_alt,
+					'content_title' => $content_title,
+					'library_title' => $library_title,
 					'scanned_at'    => $now,
 					'error_message' => null,
 				],
@@ -74,6 +78,8 @@ class Alt_Diff_Store {
 				'src'           => $src,
 				'content_alt'   => $content_alt,
 				'library_alt'   => $library_alt,
+				'content_title' => $content_title,
+				'library_title' => $library_title,
 				'scanned_at'    => $now,
 			]
 		);

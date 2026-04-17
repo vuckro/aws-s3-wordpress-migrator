@@ -98,8 +98,8 @@ $alt_counts = $alt_store->counts();
 				<tr>
 					<th style="width:72px"><?php esc_html_e( 'Aperçu', 'waaskit-s3-migrator' ); ?></th>
 					<th><?php esc_html_e( 'Post', 'waaskit-s3-migrator' ); ?></th>
-					<th><?php esc_html_e( 'ALT contenu', 'waaskit-s3-migrator' ); ?></th>
-					<th><?php esc_html_e( 'ALT Bibliothèque', 'waaskit-s3-migrator' ); ?></th>
+					<th><?php esc_html_e( 'ALT (contenu → biblio)', 'waaskit-s3-migrator' ); ?></th>
+					<th><?php esc_html_e( 'Title (contenu → biblio)', 'waaskit-s3-migrator' ); ?></th>
 					<th style="width:160px"><?php esc_html_e( 'Action', 'waaskit-s3-migrator' ); ?></th>
 				</tr>
 			</thead>
@@ -107,6 +107,8 @@ $alt_counts = $alt_store->counts();
 				<?php foreach ( $alt_data['items'] as $raw ) :
 					$diff = new Alt_Diff( (array) $raw );
 					$post = get_post( $diff->post_id() );
+					$alt_diverges   = ( '' !== $diff->library_alt() )   && ( $diff->library_alt()   !== $diff->content_alt() );
+					$title_diverges = ( '' !== $diff->library_title() ) && ( $diff->library_title() !== $diff->content_title() );
 				?>
 					<tr data-diff-id="<?php echo (int) $diff->id(); ?>">
 						<td><?php echo View_Helper::thumb_html( $diff->attachment_id() ?: null, $diff->src() ); ?></td>
@@ -124,8 +126,24 @@ $alt_counts = $alt_store->counts();
 								<br><small class="wks3m-error"><?php echo esc_html( $diff->error_message() ); ?></small>
 							<?php endif; ?>
 						</td>
-						<td><?php echo '' === $diff->content_alt() ? '<em>(vide)</em>' : esc_html( $diff->content_alt() ); ?></td>
-						<td><strong><?php echo esc_html( $diff->library_alt() ); ?></strong></td>
+						<td<?php echo $alt_diverges ? ' class="wks3m-diverges"' : ''; ?>>
+							<?php if ( $alt_diverges ) : ?>
+								<small><?php echo '' === $diff->content_alt() ? '<em>(vide)</em>' : esc_html( $diff->content_alt() ); ?></small>
+								<br>→ <strong><?php echo esc_html( $diff->library_alt() ); ?></strong>
+							<?php else : ?>
+								<small class="wks3m-muted">✓ OK</small>
+							<?php endif; ?>
+						</td>
+						<td<?php echo $title_diverges ? ' class="wks3m-diverges"' : ''; ?>>
+							<?php if ( $title_diverges ) : ?>
+								<small><?php echo '' === $diff->content_title() ? '<em>(vide)</em>' : esc_html( $diff->content_title() ); ?></small>
+								<br>→ <strong><?php echo esc_html( $diff->library_title() ); ?></strong>
+							<?php elseif ( '' === $diff->library_title() ) : ?>
+								<small class="wks3m-muted">—</small>
+							<?php else : ?>
+								<small class="wks3m-muted">✓ OK</small>
+							<?php endif; ?>
+						</td>
 						<td>
 							<button type="button" class="button button-primary wks3m-alt-apply-btn" data-id="<?php echo (int) $diff->id(); ?>">
 								<?php esc_html_e( 'Remplacer', 'waaskit-s3-migrator' ); ?>

@@ -106,6 +106,8 @@
 	max-width: 56px; max-height: 56px; object-fit: cover;
 	border-radius: 3px; background: #f3f4f6;
 }
+.wks3m-alt-table .wks3m-diverges { background: #fffbea; }
+.wks3m-alt-table .wks3m-muted    { color: #94a3b8; }
 
 /* --------- Queue Transform rule --------- */
 .wks3m-tr-results {
