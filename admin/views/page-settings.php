@@ -117,58 +117,75 @@ $revisions_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WH
 		<?php esc_html_e( 'Quand tes imports sont terminés, ces trois boutons libèrent de l\'espace en base. Chacun exécute un OPTIMIZE TABLE derrière, et t\'affiche les MB récupérés.', 'waaskit-s3-migrator' ); ?>
 	</p>
 
-	<table class="form-table" role="presentation">
-		<tbody>
-			<tr>
-				<th scope="row"><?php esc_html_e( 'Lignes de migration terminées', 'waaskit-s3-migrator' ); ?></th>
-				<td>
-					<p class="description">
-						<?php printf( esc_html__( '%d ligne(s) remplacée(s) / en échec dans le journal.', 'waaskit-s3-migrator' ), (int) $finished_queue ); ?>
-					</p>
-					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
-						onsubmit="return confirm('<?php echo esc_js( __( 'Supprimer toutes les lignes terminées du journal de migration ?', 'waaskit-s3-migrator' ) ); ?>');">
-						<input type="hidden" name="action" value="wks3m_purge_queue" />
-						<?php wp_nonce_field( 'wks3m_purge_queue' ); ?>
-						<button type="submit" class="button" <?php disabled( 0, $finished_queue ); ?>>
-							<?php esc_html_e( 'Purger les lignes terminées', 'waaskit-s3-migrator' ); ?>
-						</button>
-					</form>
-				</td>
-			</tr>
-			<tr>
-				<th scope="row"><?php esc_html_e( 'Divergences ALT en attente', 'waaskit-s3-migrator' ); ?></th>
-				<td>
-					<p class="description">
-						<?php printf( esc_html__( '%d ligne(s) en attente dans la table de synchro ALT. Un nouveau scan les reconstruira.', 'waaskit-s3-migrator' ), (int) $alt_diff_count ); ?>
-					</p>
-					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
-						onsubmit="return confirm('<?php echo esc_js( __( 'Vider toutes les divergences ALT en attente ?', 'waaskit-s3-migrator' ) ); ?>');">
-						<input type="hidden" name="action" value="wks3m_purge_alt_diff" />
-						<?php wp_nonce_field( 'wks3m_purge_alt_diff' ); ?>
-						<button type="submit" class="button" <?php disabled( 0, $alt_diff_count ); ?>>
-							<?php esc_html_e( 'Vider les divergences ALT', 'waaskit-s3-migrator' ); ?>
-						</button>
-					</form>
-				</td>
-			</tr>
-			<tr>
-				<th scope="row"><?php esc_html_e( 'Anciennes révisions de posts', 'waaskit-s3-migrator' ); ?></th>
-				<td>
-					<p class="description">
-						<?php printf( esc_html__( '%d révision(s) totales. Garde les 5 plus récentes par post — souvent le plus gros gain de place.', 'waaskit-s3-migrator' ), (int) $revisions_count ); ?>
-					</p>
-					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
-						onsubmit="return confirm('<?php echo esc_js( __( 'Supprimer toutes les révisions sauf les 5 dernières par post ?', 'waaskit-s3-migrator' ) ); ?>');">
-						<input type="hidden" name="action" value="wks3m_purge_revisions" />
-						<?php wp_nonce_field( 'wks3m_purge_revisions' ); ?>
-						<button type="submit" class="button" <?php disabled( 0, $revisions_count ); ?>>
-							<?php esc_html_e( 'Purger les révisions', 'waaskit-s3-migrator' ); ?>
-						</button>
-					</form>
-				</td>
-			</tr>
-		</tbody>
-	</table>
+	<?php
+	// Compute revisions-over-keep-limit: only those beyond 5 per post are actually purgeable.
+	$revisions_over = (int) $wpdb->get_var(
+		"SELECT COUNT(*) FROM (
+			SELECT ID, ROW_NUMBER() OVER (PARTITION BY post_parent ORDER BY post_date DESC) AS rn
+			FROM {$wpdb->posts} WHERE post_type='revision'
+		) r WHERE rn > 5"
+	);
+
+	$purge_rows = [
+		[
+			'label'        => __( 'Lignes de migration terminées', 'waaskit-s3-migrator' ),
+			'description'  => __( 'Lignes remplacée(s) / en échec dans le journal.', 'waaskit-s3-migrator' ),
+			'count'        => $finished_queue,
+			'action'       => 'wks3m_purge_queue',
+			'button'       => __( 'Purger les lignes terminées', 'waaskit-s3-migrator' ),
+			'confirm'      => __( 'Supprimer toutes les lignes terminées du journal de migration ?', 'waaskit-s3-migrator' ),
+		],
+		[
+			'label'        => __( 'Divergences ALT en attente', 'waaskit-s3-migrator' ),
+			'description'  => __( 'Lignes en attente dans la synchro ALT. Un nouveau scan les reconstruira.', 'waaskit-s3-migrator' ),
+			'count'        => $alt_diff_count,
+			'action'       => 'wks3m_purge_alt_diff',
+			'button'       => __( 'Vider les divergences ALT', 'waaskit-s3-migrator' ),
+			'confirm'      => __( 'Vider toutes les divergences ALT en attente ?', 'waaskit-s3-migrator' ),
+		],
+		[
+			'label'        => __( 'Anciennes révisions de posts', 'waaskit-s3-migrator' ),
+			'description'  => sprintf(
+				/* translators: %d: total revision count */
+				__( 'Révision(s) à supprimer (au-delà des 5 plus récentes par post, sur %d au total).', 'waaskit-s3-migrator' ),
+				$revisions_count
+			),
+			'count'        => $revisions_over,
+			'action'       => 'wks3m_purge_revisions',
+			'button'       => __( 'Purger les révisions', 'waaskit-s3-migrator' ),
+			'confirm'      => __( 'Supprimer toutes les révisions sauf les 5 dernières par post ?', 'waaskit-s3-migrator' ),
+		],
+	];
+	?>
+	<div class="wks3m-cleanup-grid">
+		<?php foreach ( $purge_rows as $row ) : $clean = 0 === (int) $row['count']; ?>
+			<div class="wks3m-cleanup-row <?php echo $clean ? 'is-clean' : 'has-work'; ?>">
+				<div class="wks3m-cleanup-count" aria-hidden="true">
+					<?php if ( $clean ) : ?>
+						<span class="check">✓</span>
+					<?php else : ?>
+						<?php echo (int) $row['count']; ?>
+					<?php endif; ?>
+				</div>
+				<div class="wks3m-cleanup-info">
+					<strong><?php echo esc_html( $row['label'] ); ?></strong>
+					<span class="description"><?php echo esc_html( $row['description'] ); ?></span>
+				</div>
+				<div class="wks3m-cleanup-action">
+					<?php if ( $clean ) : ?>
+						<span class="wks3m-cleanup-done"><?php esc_html_e( 'Rien à purger', 'waaskit-s3-migrator' ); ?></span>
+					<?php else : ?>
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+							onsubmit="return confirm('<?php echo esc_js( $row['confirm'] ); ?>');">
+							<input type="hidden" name="action" value="<?php echo esc_attr( $row['action'] ); ?>" />
+							<?php wp_nonce_field( $row['action'] ); ?>
+							<button type="submit" class="button button-primary"><?php echo esc_html( $row['button'] ); ?></button>
+						</form>
+					<?php endif; ?>
+				</div>
+			</div>
+		<?php endforeach; ?>
+	</div>
 
 	<p class="description" style="margin-top:1em;">
 		<?php

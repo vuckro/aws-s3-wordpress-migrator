@@ -215,7 +215,10 @@ class Transform {
 			if ( self::FIELD_ALT === $rule['field'] ) {
 				update_post_meta( $attach_id, '_wp_attachment_image_alt', $new_value );
 			} else {
-				wp_update_post( [ 'ID' => $attach_id, 'post_title' => $new_value ] );
+				// Direct SQL, same rationale as Replacer / Alt_Syncer: skips the
+				// save_post cascade that would otherwise fire on every attachment
+				// matched by a bulk rule.
+				$wpdb->update( $wpdb->posts, [ 'post_title' => $new_value ], [ 'ID' => $attach_id ], [ '%s' ], [ '%d' ] );
 			}
 			$count++;
 		}
