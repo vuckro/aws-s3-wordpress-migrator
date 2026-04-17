@@ -15,9 +15,10 @@ class Admin {
 
 	/** Sub-tabs and the view file each one renders. */
 	private const TABS = [
-		'scan'     => [ 'label' => 'Scan',            'view' => 'page-scan.php' ],
-		'queue'    => [ 'label' => 'File d\'attente', 'view' => 'page-queue.php' ],
-		'settings' => [ 'label' => 'Réglages',        'view' => 'page-settings.php' ],
+		'instructions' => [ 'label' => 'Instructions',   'view' => 'page-instructions.php' ],
+		'scan'         => [ 'label' => 'Scan',           'view' => 'page-scan.php' ],
+		'queue'        => [ 'label' => 'File d\'attente', 'view' => 'page-queue.php' ],
+		'settings'     => [ 'label' => 'Réglages',       'view' => 'page-settings.php' ],
 	];
 
 	public function register(): void {
@@ -258,9 +259,9 @@ class Admin {
 	}
 
 	public function render_page(): void {
-		$tab = isset( $_GET['tab'] ) ? sanitize_key( (string) $_GET['tab'] ) : 'scan';
+		$tab = isset( $_GET['tab'] ) ? sanitize_key( (string) $_GET['tab'] ) : 'instructions';
 		if ( ! isset( self::TABS[ $tab ] ) ) {
-			$tab = 'scan';
+			$tab = 'instructions';
 		}
 		?>
 		<div class="wrap wks3m-wrap">
