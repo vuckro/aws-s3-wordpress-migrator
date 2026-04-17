@@ -101,7 +101,7 @@ $saved     = isset( $_GET['sources_saved'] );
 			printf(
 				/* translators: %s: Queue tab link */
 				esc_html__( 'Scan terminé. Passe à l\'onglet %s pour voir les images détectées et lancer les imports.', 'waaskit-s3-migrator' ),
-				'<a href="' . \WKS3M\Admin\View_Helper::tab_url( 'queue' ) . '"><strong>' . esc_html__( 'File d\'attente', 'waaskit-s3-migrator' ) . '</strong></a>'
+				'<a href="' . esc_url( \WKS3M\Admin\View_Helper::tab_url( 'queue' ) ) . '"><strong>' . esc_html__( 'Importer / Remplacer', 'waaskit-s3-migrator' ) . '</strong></a>'
 			);
 			?>
 		</p>

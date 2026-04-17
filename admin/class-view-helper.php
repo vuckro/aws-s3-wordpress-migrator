@@ -16,13 +16,20 @@ defined( 'ABSPATH' ) || exit;
 
 class View_Helper {
 
-	/** URL to a specific sub-tab (e.g. queue or history) with a status filter. */
+	/**
+	 * Raw URL to a sub-tab (e.g. queue, alt-sync) with optional extra params.
+	 *
+	 * NOT HTML-escaped — callers that emit this in HTML must wrap in esc_url().
+	 * Returning raw keeps it safe for wp_safe_redirect(), which otherwise
+	 * chokes on esc_url()'s `&#038;` ampersand encoding and loses query params
+	 * (symptom: purge actions landed back on the default tab).
+	 */
 	public static function tab_url( string $tab, array $extra = [] ): string {
 		$args = array_merge(
 			[ 'page' => 'wks3m', 'tab' => $tab ],
 			array_filter( $extra, static fn( $v ) => null !== $v && '' !== $v )
 		);
-		return esc_url( admin_url( 'tools.php?' . http_build_query( $args ) ) );
+		return admin_url( 'tools.php?' . http_build_query( $args ) );
 	}
 
 	/** Render a single nav-tab link for the plugin header. */

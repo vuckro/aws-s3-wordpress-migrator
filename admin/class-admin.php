@@ -15,10 +15,11 @@ class Admin {
 
 	/** Sub-tabs and the view file each one renders. */
 	private const TABS = [
-		'instructions' => [ 'label' => 'Instructions',   'view' => 'page-instructions.php' ],
-		'scan'         => [ 'label' => 'Scan',           'view' => 'page-scan.php' ],
-		'queue'        => [ 'label' => 'File d\'attente', 'view' => 'page-queue.php' ],
-		'settings'     => [ 'label' => 'Réglages',       'view' => 'page-settings.php' ],
+		'instructions' => [ 'label' => 'Instructions',          'view' => 'page-instructions.php' ],
+		'scan'         => [ 'label' => 'Scan',                  'view' => 'page-scan.php' ],
+		'queue'        => [ 'label' => 'Importer / Remplacer',  'view' => 'page-queue.php' ],
+		'alt-sync'     => [ 'label' => 'Synchro ALT',           'view' => 'page-alt-sync.php' ],
+		'settings'     => [ 'label' => 'Réglages',              'view' => 'page-settings.php' ],
 	];
 
 	public function register(): void {
@@ -130,7 +131,7 @@ class Admin {
 		global $wpdb;
 		$wpdb->query( 'TRUNCATE TABLE ' . \WKS3M\Activator::alt_diff_table_name() );
 
-		wp_safe_redirect( View_Helper::tab_url( 'queue', [ 'purged' => 'alt_diff' ] ) );
+		wp_safe_redirect( View_Helper::tab_url( 'settings', [ 'purged' => 'alt_diff' ] ) );
 		exit;
 	}
 
@@ -156,7 +157,7 @@ class Admin {
 
 		wp_safe_redirect(
 			View_Helper::tab_url(
-				'queue',
+				'settings',
 				[
 					'purged_rows' => $rows_deleted,
 					'freed_mb'    => max( 0, (int) round( $before_mb - $after_mb ) ),
@@ -177,7 +178,9 @@ class Admin {
 		}
 		check_admin_referer( 'wks3m_purge_revisions' );
 
-		$keep = isset( $_POST['keep'] ) ? max( 0, min( 100, (int) $_POST['keep'] ) ) : 5;
+		// Fixed at 5 — matches the recommended WP_POST_REVISIONS and keeps a
+		// sensible safety net without letting the user pick a dangerous 0.
+		$keep = 5;
 
 		global $wpdb;
 
@@ -207,7 +210,7 @@ class Admin {
 
 		wp_safe_redirect(
 			View_Helper::tab_url(
-				'queue',
+				'settings',
 				[
 					'purged_revs' => $rows_deleted,
 					'freed_mb'    => max( 0, (int) round( $before_mb - $after_mb ) ),
