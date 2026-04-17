@@ -12,7 +12,7 @@ defined( 'ABSPATH' ) || exit;
 class Activator {
 
 	public const TABLE_VERSION_OPTION = 'wks3m_db_version';
-	public const CURRENT_DB_VERSION   = '1.4.0';
+	public const CURRENT_DB_VERSION   = '1.5.0';
 
 	public static function table_name(): string {
 		global $wpdb;
@@ -49,11 +49,23 @@ class Activator {
 
 	/**
 	 * Install / upgrade both schema tables in one pass. dbDelta() is idempotent.
+	 *
+	 * On upgrade from < 1.5.0 we drop the alt_diff table entirely: its legacy
+	 * schema (status/applied_at/rolled_back_at columns + applied/rolled_back
+	 * rows) no longer matches the current feature. The next scan rebuilds it.
 	 */
 	public static function install_tables(): void {
+		global $wpdb;
+		$prev_version = (string) get_option( self::TABLE_VERSION_OPTION, '' );
+
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		self::install_migration_log_table();
+
+		if ( '' !== $prev_version && version_compare( $prev_version, '1.5.0', '<' ) ) {
+			$wpdb->query( 'DROP TABLE IF EXISTS ' . self::alt_diff_table_name() );
+		}
 		self::install_alt_diff_table();
+
 		update_option( self::TABLE_VERSION_OPTION, self::CURRENT_DB_VERSION );
 	}
 
@@ -95,10 +107,12 @@ class Activator {
 	}
 
 	/**
-	 * Alt divergences found during the Synchro ALT scan.
+	 * Alt divergences detected by the Synchro ALT scan.
 	 *
-	 * One row per (post_id, src) pair where the <img>'s alt in content differs
-	 * from _wp_attachment_image_alt on the resolved attachment.
+	 * One row per (post_id, src) pair waiting to be synced. On a successful
+	 * apply the row is deleted; on failure error_message is filled and the
+	 * row stays visible in the UI for triage. No history kept: a re-scan
+	 * rebuilds the table from live state.
 	 */
 	private static function install_alt_diff_table(): void {
 		global $wpdb;
@@ -113,14 +127,10 @@ class Activator {
 			src VARCHAR(500) NOT NULL,
 			content_alt TEXT NULL,
 			library_alt TEXT NULL,
-			status VARCHAR(20) NOT NULL DEFAULT 'diff',
 			error_message TEXT NULL,
 			scanned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			applied_at DATETIME NULL,
-			rolled_back_at DATETIME NULL,
 			PRIMARY KEY  (id),
 			UNIQUE KEY post_src (post_id, src(191)),
-			KEY status (status),
 			KEY attachment_id (attachment_id)
 		) {$charset_collate};";
 

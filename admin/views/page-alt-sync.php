@@ -1,7 +1,8 @@
 <?php
 /**
- * Synchro ALT tab — detect and apply ALT divergences between the Media Library
- * (_wp_attachment_image_alt) and the hardcoded <img alt> values in post_content.
+ * Synchro ALT tab — detect and apply ALT divergences between the Media
+ * Library (_wp_attachment_image_alt) and the hardcoded <img alt> values in
+ * post_content.
  *
  * @package WaasKitS3Migrator
  */
@@ -13,32 +14,22 @@ use WKS3M\Alt_Diff;
 use WKS3M\Plugin;
 
 $store  = Plugin::instance()->alt_diff_store();
-$status = isset( $_GET['status'] ) ? sanitize_key( (string) $_GET['status'] ) : 'diff';
 $search = isset( $_GET['s'] ) ? sanitize_text_field( (string) $_GET['s'] ) : '';
+$errors = ! empty( $_GET['errors'] );
 $paged  = isset( $_GET['paged'] ) ? max( 1, (int) $_GET['paged'] ) : 1;
 
 $data   = $store->list( [
-	'status'   => $status,
-	'search'   => $search,
-	'page'     => $paged,
-	'per_page' => 25,
+	'search'      => $search,
+	'errors_only' => $errors,
+	'page'        => $paged,
+	'per_page'    => 25,
 ] );
-$counts = $store->counts_by_status();
-
-$status_tabs = [
-	'diff'        => __( 'À synchroniser', 'waaskit-s3-migrator' ),
-	'applied'     => __( 'Synchronisés', 'waaskit-s3-migrator' ),
-	'rolled_back' => __( 'Rollback', 'waaskit-s3-migrator' ),
-	'failed'      => __( 'Échecs', 'waaskit-s3-migrator' ),
-];
+$counts = $store->counts();
 ?>
 <div class="wks3m-panel">
 	<h2><?php esc_html_e( 'Scan des ALT divergents', 'waaskit-s3-migrator' ); ?></h2>
 	<p class="description">
-		<?php esc_html_e( 'Détecte chaque <img> dans le contenu des articles dont l\'attribut alt diverge de la Bibliothèque WordPress. Résolution par src URL via attachment_url_to_postid() — fiable même si la classe wp-image-N est incorrecte.', 'waaskit-s3-migrator' ); ?>
-	</p>
-	<p class="description">
-		<?php esc_html_e( 'Périmètre : posts déjà traités par la migration (statut « Remplacée » dans la file d\'attente). Rien n\'est modifié pendant le scan.', 'waaskit-s3-migrator' ); ?>
+		<?php esc_html_e( 'Détecte chaque <img> dans le contenu des articles dont l\'attribut alt diverge de la Bibliothèque WordPress. Le scan résout d\'abord les URLs locales (wp-content/uploads/…) puis les URLs externes (S3/CDN) encore présentes dans le contenu via le journal de migration. Rien n\'est modifié pendant le scan.', 'waaskit-s3-migrator' ); ?>
 	</p>
 
 	<p>
@@ -73,41 +64,45 @@ $status_tabs = [
 </div>
 
 <div class="wks3m-panel">
-	<h2><?php esc_html_e( 'Divergences détectées', 'waaskit-s3-migrator' ); ?></h2>
+	<h2>
+		<?php esc_html_e( 'Divergences à synchroniser', 'waaskit-s3-migrator' ); ?>
+		<span class="title-count"><?php echo (int) $counts['total']; ?></span>
+	</h2>
 
-	<ul class="subsubsub">
-		<?php foreach ( $status_tabs as $key => $label ) :
-			$count = (int) ( $counts[ $key ] ?? 0 );
-			$url   = View_Helper::tab_url( 'alt-sync', [ 'status' => $key ] );
-		?>
+	<?php if ( (int) $counts['errors'] > 0 ) : ?>
+		<ul class="subsubsub">
 			<li>
-				<a href="<?php echo $url; ?>" class="<?php echo $status === $key ? 'current' : ''; ?>">
-					<?php echo esc_html( $label ); ?> <span class="count">(<?php echo (int) $count; ?>)</span>
-				</a><?php if ( $key !== array_key_last( $status_tabs ) ) echo ' |'; ?>
+				<a href="<?php echo View_Helper::tab_url( 'alt-sync' ); ?>" class="<?php echo ! $errors ? 'current' : ''; ?>">
+					<?php esc_html_e( 'Toutes', 'waaskit-s3-migrator' ); ?> <span class="count">(<?php echo (int) $counts['total']; ?>)</span>
+				</a> |
 			</li>
-		<?php endforeach; ?>
-	</ul>
+			<li>
+				<a href="<?php echo View_Helper::tab_url( 'alt-sync', [ 'errors' => 1 ] ); ?>" class="<?php echo $errors ? 'current' : ''; ?>">
+					<?php esc_html_e( 'Erreurs uniquement', 'waaskit-s3-migrator' ); ?> <span class="count">(<?php echo (int) $counts['errors']; ?>)</span>
+				</a>
+			</li>
+		</ul>
+	<?php endif; ?>
 
 	<form method="get" class="wks3m-queue-filters">
 		<input type="hidden" name="page" value="wks3m" />
 		<input type="hidden" name="tab" value="alt-sync" />
-		<input type="hidden" name="status" value="<?php echo esc_attr( $status ); ?>" />
+		<?php if ( $errors ) : ?><input type="hidden" name="errors" value="1" /><?php endif; ?>
 
 		<label><?php esc_html_e( 'Recherche :', 'waaskit-s3-migrator' ); ?>
 			<input type="search" name="s" value="<?php echo esc_attr( $search ); ?>" placeholder="<?php esc_attr_e( 'Fichier, alt…', 'waaskit-s3-migrator' ); ?>" />
 		</label>
-
 		<?php submit_button( __( 'Filtrer', 'waaskit-s3-migrator' ), 'secondary', '', false, [ 'style' => 'margin-left:.4em;' ] ); ?>
 	</form>
 
-	<?php if ( 'diff' === $status && (int) $counts['diff'] > 0 ) : ?>
+	<?php if ( (int) $counts['total'] > 0 && ! $errors ) : ?>
 		<div class="wks3m-bulk-bar">
 			<button type="button" class="button button-primary" id="wks3m-alt-bulk-apply">
 				<?php
 				printf(
 					/* translators: %d: number of divergences */
 					esc_html__( 'Tout synchroniser (%d)', 'waaskit-s3-migrator' ),
-					(int) $counts['diff']
+					(int) $counts['total']
 				);
 				?>
 			</button>
@@ -130,8 +125,7 @@ $status_tabs = [
 					<th><?php esc_html_e( 'Post', 'waaskit-s3-migrator' ); ?></th>
 					<th><?php esc_html_e( 'ALT contenu', 'waaskit-s3-migrator' ); ?></th>
 					<th><?php esc_html_e( 'ALT Bibliothèque', 'waaskit-s3-migrator' ); ?></th>
-					<th><?php esc_html_e( 'Statut', 'waaskit-s3-migrator' ); ?></th>
-					<th style="width:180px"><?php esc_html_e( 'Action', 'waaskit-s3-migrator' ); ?></th>
+					<th style="width:160px"><?php esc_html_e( 'Action', 'waaskit-s3-migrator' ); ?></th>
 				</tr>
 			</thead>
 			<tbody>
@@ -151,27 +145,16 @@ $status_tabs = [
 							<?php endif; ?>
 							<br>
 							<code class="wks3m-url-tiny"><?php echo esc_html( basename( (string) wp_parse_url( $diff->src(), PHP_URL_PATH ) ) ); ?></code>
+							<?php if ( $diff->has_error() ) : ?>
+								<br><small class="wks3m-error"><?php echo esc_html( $diff->error_message() ); ?></small>
+							<?php endif; ?>
 						</td>
 						<td><?php echo '' === $diff->content_alt() ? '<em>(vide)</em>' : esc_html( $diff->content_alt() ); ?></td>
 						<td><strong><?php echo esc_html( $diff->library_alt() ); ?></strong></td>
 						<td>
-							<?php echo View_Helper::status_pill( $diff->status() ); ?>
-							<?php if ( '' !== $diff->error_message() ) : ?>
-								<br><small class="wks3m-error"><?php echo esc_html( $diff->error_message() ); ?></small>
-							<?php endif; ?>
-						</td>
-						<td>
-							<?php if ( 'diff' === $diff->status() ) : ?>
-								<button type="button" class="button button-primary wks3m-alt-apply-btn" data-id="<?php echo (int) $diff->id(); ?>">
-									<?php esc_html_e( 'Remplacer', 'waaskit-s3-migrator' ); ?>
-								</button>
-							<?php elseif ( 'applied' === $diff->status() ) : ?>
-								<button type="button" class="button wks3m-alt-rollback-btn" data-id="<?php echo (int) $diff->id(); ?>">
-									<?php esc_html_e( '↺ Rollback', 'waaskit-s3-migrator' ); ?>
-								</button>
-							<?php else : ?>
-								<em>—</em>
-							<?php endif; ?>
+							<button type="button" class="button button-primary wks3m-alt-apply-btn" data-id="<?php echo (int) $diff->id(); ?>">
+								<?php esc_html_e( 'Remplacer', 'waaskit-s3-migrator' ); ?>
+							</button>
 						</td>
 					</tr>
 				<?php endforeach; ?>

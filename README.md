@@ -44,9 +44,13 @@ Chaque import crée un attachment WordPress avec le `alt`, le titre, et deux pos
 
 Onglet **Synchro ALT**. Après avoir édité les ALT dans la Bibliothèque WordPress, ce tab propage les nouvelles valeurs dans le `post_content` des articles où ces images apparaissent en dur (`<img alt="…">`).
 
-Le pivot est le **src URL** résolu par `attachment_url_to_postid()` (core WP) — pas la classe `wp-image-N`, qui n'est pas fiable après un replace d'URL en masse.
+Résolution src → attachment en deux passes :
+1. `attachment_url_to_postid()` (core WP) pour les URLs locales déjà réécrites vers `/wp-content/uploads/`
+2. Lookup dans `wks3m_migration_log.source_url_variants` pour les URLs externes (S3/CDN) encore présentes dans le contenu
 
-Flow : **Lancer le scan** → remplit `wp_wks3m_alt_diff` avec une ligne par `<img>` divergent → tableau filtrable/paginé → **Remplacer** par ligne ou **Tout synchroniser** en masse → backup par ligne dans `_wks3m_alt_backup_{diff_id}` → **Rollback** granulaire disponible.
+Le pivot n'est **jamais** la classe `wp-image-N` — elle n'est pas fiable après le replace d'URLs en masse.
+
+Flow : **Lancer le scan** → remplit `wp_wks3m_alt_diff` avec une ligne par `<img>` divergent → tableau filtrable/paginé → **Remplacer** par ligne ou **Tout synchroniser** en masse. Sur apply OK la ligne disparaît ; sur erreur elle reste avec le message affiché. Un nouveau scan reconstruit la liste depuis l'état courant — pas d'historique, pas de rollback (l'écriture passe en direct SQL sans créer de révision). Pour annuler un changement ALT en masse, relancer le scan après avoir ré-édité les ALT dans la Bibliothèque.
 
 ### 4. Historique & Rollback
 
@@ -116,11 +120,13 @@ waaskit-s3-migrator/
 |---|---|
 | `id` | PK |
 | `post_id`, `src` | (UNIQUE) — une ligne par `<img>` divergent |
-| `attachment_id` | résolu par `attachment_url_to_postid()` au scan |
+| `attachment_id` | résolu par `attachment_url_to_postid()` ou variant lookup |
 | `content_alt` | alt lu dans `post_content` |
 | `library_alt` | alt live depuis `_wp_attachment_image_alt` |
-| `status` | `diff` / `applied` / `rolled_back` / `failed` |
-| `scanned_at`, `applied_at`, `rolled_back_at` | timestamps |
+| `error_message` | NULL en attente, rempli si apply a échoué |
+| `scanned_at` | timestamp |
+
+Les lignes sont transitoires : apply OK → DELETE, apply KO → `error_message` rempli, la ligne reste visible.
 
 ## Postmeta créés
 
@@ -130,7 +136,6 @@ waaskit-s3-migrator/
 | `_wks3m_source_url` | attachment | URL d'origine |
 | `_wks3m_source_host` | attachment | host d'origine |
 | `_wks3m_backup_{row_id}` | post | snapshot `post_content` pour rollback d'import |
-| `_wks3m_alt_backup_{diff_id}` | post | snapshot `post_content` pour rollback d'une synchro ALT |
 | `_wks3m_replacements` | post | log des remplacements par row |
 
 ## Options
@@ -143,7 +148,7 @@ waaskit-s3-migrator/
 | `wks3m_dry_run` | `1` | Placeholder — le toggle est par-session côté JS |
 | `wks3m_batch_size` | `10` | Placeholder |
 | `wks3m_defer_thumbnails` | `0` | Skip `wp_generate_attachment_metadata()` à l'import |
-| `wks3m_db_version` | `1.4.0` | Pour migrations de schéma |
+| `wks3m_db_version` | `1.5.0` | Pour migrations de schéma |
 
 Notes : la concurrence est fixée à 1 (séquentiel) et les retries à 3 par défaut — non configurables pour éviter les mauvaises surprises.
 

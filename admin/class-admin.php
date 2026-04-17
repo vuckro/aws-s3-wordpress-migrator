@@ -77,8 +77,6 @@ class Admin {
 			'replaced'            => __( 'Remplacée', 'waaskit-s3-migrator' ),
 			'failed'              => __( 'Échec', 'waaskit-s3-migrator' ),
 			'rolled_back'         => __( 'Rollback', 'waaskit-s3-migrator' ),
-			'diff'                => __( 'À synchroniser', 'waaskit-s3-migrator' ),
-			'applied'             => __( 'Synchronisé', 'waaskit-s3-migrator' ),
 			'view_media'          => __( 'Voir média', 'waaskit-s3-migrator' ),
 			// Confirmations.
 			'confirm_real'        => __( 'Mode réel : l\'image sera téléchargée dans la Media Library. Continuer ?', 'waaskit-s3-migrator' ),
@@ -93,8 +91,7 @@ class Admin {
 			// Alt sync.
 			'alt_scan_progress'   => __( 'Scan des ALT en cours…', 'waaskit-s3-migrator' ),
 			'alt_apply_progress'  => __( 'Synchro en cours…', 'waaskit-s3-migrator' ),
-			'confirm_alt_apply'   => __( 'Remplacer les ALT divergents dans le contenu des articles ? Une sauvegarde par ligne est créée (rollback possible).', 'waaskit-s3-migrator' ),
-			'confirm_alt_rollback' => __( 'Restaurer le contenu de l\'article à son état d\'avant la synchro ALT ?', 'waaskit-s3-migrator' ),
+			'confirm_alt_apply'   => __( 'Remplacer les ALT divergents dans le contenu des articles ? L\'opération écrit directement en base (aucune révision créée). Un nouveau scan reconstruit toujours le tableau depuis l\'état courant.', 'waaskit-s3-migrator' ),
 			'alt_nothing'         => __( 'Aucune divergence à synchroniser. Lance un scan d\'abord.', 'waaskit-s3-migrator' ),
 		];
 	}

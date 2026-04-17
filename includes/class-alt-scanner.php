@@ -3,10 +3,15 @@
  * Alt_Scanner — find <img> tags whose alt attribute in post_content diverges
  * from _wp_attachment_image_alt on the resolved Media Library attachment.
  *
- * Pivot is the <img src> URL resolved via WordPress core
- * attachment_url_to_postid(), NOT class="wp-image-N" — that class is not a
- * reliable identifier on migrated content (the existing URL replacer stamps
- * the same class onto every <img> in a post during a replace pass).
+ * Src resolution has two layers, in order:
+ *   1. attachment_url_to_postid() — fast path for URLs under wp-content/uploads/
+ *   2. Migration-log variant lookup — for URLs still pointing to the original
+ *      external source (S3/CDN) that we've already imported a local copy of
+ *      but haven't (or couldn't) rewrite in post_content.
+ *
+ * Either way the pivot is the <img src>, NOT class="wp-image-N" — that class
+ * is not a reliable identifier on this codebase (the URL replacer stamps the
+ * same class onto every <img> in a post during a replace pass).
  *
  * @package WaasKitS3Migrator
  */
@@ -24,9 +29,8 @@ class Alt_Scanner {
 	}
 
 	/**
-	 * Scan a batch of posts. Only posts referenced by a 'replaced' row in the
-	 * migration log are in scope — this is the universe of content the plugin
-	 * has touched and therefore the universe we can safely sync.
+	 * Scan a batch of posts. In-scope = posts referenced by a 'replaced' row
+	 * in the migration log.
 	 *
 	 * @return array{
 	 *     processed:int, total:int, next_offset:int,
@@ -42,11 +46,12 @@ class Alt_Scanner {
 		$imgs_scanned = 0;
 		$diffs_found  = 0;
 
-		$replaced_atts = $this->replaced_attachment_ids();
+		$owned_atts = $this->owned_attachment_ids();
+		$url_index  = $this->variant_index();
 
 		foreach ( $slice as $post_id ) {
 			$processed++;
-			[ $imgs, $diffs ] = $this->scan_post( (int) $post_id, $replaced_atts );
+			[ $imgs, $diffs ] = $this->scan_post( (int) $post_id, $owned_atts, $url_index );
 			$imgs_scanned    += $imgs;
 			$diffs_found     += $diffs;
 		}
@@ -63,14 +68,13 @@ class Alt_Scanner {
 	/**
 	 * @return array{0:int,1:int} [imgs_scanned, diffs_recorded]
 	 */
-	private function scan_post( int $post_id, array $replaced_atts ): array {
+	private function scan_post( int $post_id, array $owned_atts, array $url_index ): array {
 		$post = get_post( $post_id );
 		if ( ! $post ) {
 			return [ 0, 0 ];
 		}
 		$content = (string) $post->post_content;
 		if ( '' === $content || false === stripos( $content, '<img' ) ) {
-			// Post no longer has any img — purge any leftover diffs for it.
 			$this->store->purge_resolved_for_post( $post_id, [] );
 			return [ 0, 0 ];
 		}
@@ -79,52 +83,63 @@ class Alt_Scanner {
 		$diffs        = 0;
 		$current_srcs = [];
 
-		if ( preg_match_all( '#<img\b[^>]*>#i', $content, $m ) ) {
-			foreach ( $m[0] as $tag ) {
-				$imgs++;
-				if ( ! preg_match( '#\bsrc=(["\'])(.+?)\1#i', $tag, $sm ) ) {
-					continue;
-				}
-				$src = html_entity_decode( $sm[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-
-				$att_id = (int) attachment_url_to_postid( $src );
-				if ( $att_id <= 0 || ! isset( $replaced_atts[ $att_id ] ) ) {
-					continue;
-				}
-
-				$library_alt = trim( (string) get_post_meta( $att_id, '_wp_attachment_image_alt', true ) );
-				if ( '' === $library_alt ) {
-					// Don't touch content when the library says "no alt" (user's
-					// explicit choice: avoid overwriting a valid content alt with
-					// an empty library value).
-					continue;
-				}
-
-				$content_alt = '';
-				if ( preg_match( '#\balt=(["\'])(.*?)\1#is', $tag, $am ) ) {
-					$content_alt = trim( html_entity_decode( $am[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
-				}
-
-				if ( $library_alt === $content_alt ) {
-					continue;
-				}
-
-				$this->store->upsert_diff( $post_id, $att_id, $src, $content_alt, $library_alt );
-				$current_srcs[] = $src;
-				$diffs++;
-			}
+		if ( ! preg_match_all( '#<img\b[^>]*>#i', $content, $m ) ) {
+			$this->store->purge_resolved_for_post( $post_id, [] );
+			return [ 0, 0 ];
 		}
 
-		// Remove leftover 'diff' rows for this post whose src is no longer
-		// divergent (user manually fixed or removed the image).
-		$this->store->purge_resolved_for_post( $post_id, $current_srcs );
+		foreach ( $m[0] as $tag ) {
+			$imgs++;
+			if ( ! preg_match( '#\bsrc=(["\'])(.+?)\1#i', $tag, $sm ) ) {
+				continue;
+			}
+			$src    = html_entity_decode( $sm[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+			$att_id = $this->resolve_src( $src, $url_index );
+			if ( $att_id <= 0 || ! isset( $owned_atts[ $att_id ] ) ) {
+				continue;
+			}
 
+			$library_alt = trim( (string) get_post_meta( $att_id, '_wp_attachment_image_alt', true ) );
+			if ( '' === $library_alt ) {
+				continue;
+			}
+
+			$content_alt = '';
+			if ( preg_match( '#\balt=(["\'])(.*?)\1#is', $tag, $am ) ) {
+				$content_alt = trim( html_entity_decode( $am[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+			}
+			if ( $library_alt === $content_alt ) {
+				continue;
+			}
+
+			$this->store->upsert_diff( $post_id, $att_id, $src, $content_alt, $library_alt );
+			$current_srcs[] = $src;
+			$diffs++;
+		}
+
+		$this->store->purge_resolved_for_post( $post_id, $current_srcs );
 		return [ $imgs, $diffs ];
 	}
 
 	/**
-	 * Union of post_ids across all 'replaced' migration log rows. Cached in
-	 * a static to avoid rebuilding it batch after batch within one request.
+	 * Resolve a src URL to an attachment ID.
+	 *
+	 * Fast path: core's attachment_url_to_postid (local uploads URLs).
+	 * Fallback: variant index built from migration log — picks up S3/CDN URLs
+	 * that were never rewritten in post_content but whose underlying file has
+	 * been imported.
+	 */
+	private function resolve_src( string $src, array $url_index ): int {
+		$id = (int) attachment_url_to_postid( $src );
+		if ( $id > 0 ) {
+			return $id;
+		}
+		return (int) ( $url_index[ $src ] ?? 0 );
+	}
+
+	/**
+	 * Union of post_ids across all 'replaced' migration log rows. Cached
+	 * per-request.
 	 *
 	 * @return int[]
 	 */
@@ -157,13 +172,12 @@ class Alt_Scanner {
 	}
 
 	/**
-	 * Set of attachment IDs we own (status='imported' or 'replaced' in the
-	 * migration log). Used as a safety filter so we never rewrite alts on
-	 * attachments that were pre-existing in the library.
+	 * Set of attachment IDs the plugin owns (imported or replaced). Safety
+	 * filter so we never rewrite alts on attachments unrelated to the migration.
 	 *
 	 * @return array<int,true>
 	 */
-	private function replaced_attachment_ids(): array {
+	private function owned_attachment_ids(): array {
 		static $cache = null;
 		if ( null !== $cache ) {
 			return $cache;
@@ -182,6 +196,47 @@ class Alt_Scanner {
 			}
 		}
 		$cache = $set;
+		return $cache;
+	}
+
+	/**
+	 * Map of external-variant URL → attachment_id, built from the migration
+	 * log. Used to resolve src attributes that still point to the original
+	 * S3/CDN host (i.e. post_content that was never URL-rewritten).
+	 *
+	 * @return array<string,int>
+	 */
+	private function variant_index(): array {
+		static $cache = null;
+		if ( null !== $cache ) {
+			return $cache;
+		}
+		global $wpdb;
+		$table = Activator::table_name();
+		$rows  = $wpdb->get_results(
+			"SELECT attachment_id, source_url_variants FROM {$table}
+			 WHERE attachment_id IS NOT NULL AND source_url_variants IS NOT NULL",
+			ARRAY_A
+		);
+		$index = [];
+		foreach ( (array) $rows as $r ) {
+			$att = (int) $r['attachment_id'];
+			if ( $att <= 0 ) {
+				continue;
+			}
+			$variants = json_decode( (string) $r['source_url_variants'], true );
+			if ( ! is_array( $variants ) ) {
+				continue;
+			}
+			foreach ( $variants as $v ) {
+				$v = is_string( $v ) ? $v : '';
+				if ( '' === $v ) {
+					continue;
+				}
+				$index[ $v ] = $att;
+			}
+		}
+		$cache = $index;
 		return $cache;
 	}
 }

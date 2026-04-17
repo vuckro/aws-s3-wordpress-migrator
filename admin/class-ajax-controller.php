@@ -29,11 +29,10 @@ class Ajax_Controller {
 			'wks3m_rollback_row'      => 'rollback_row',
 			'wks3m_finalize_thumb'    => 'finalize_thumb',
 			'wks3m_pending_thumb_ids' => 'pending_thumb_ids',
-			// Alt sync — new in v1.2.
+			// Alt sync.
 			'wks3m_alt_scan_batch'    => 'alt_scan_batch',
 			'wks3m_alt_diff_ids'      => 'alt_diff_ids',
 			'wks3m_alt_apply_diff'    => 'alt_apply_diff',
-			'wks3m_alt_rollback_diff' => 'alt_rollback_diff',
 		];
 		foreach ( $handlers as $action => $method ) {
 			add_action( "wp_ajax_{$action}", [ $this, $method ] );
@@ -182,7 +181,7 @@ public function import_row(): void {
 		$this->guard();
 		$limit = isset( $_POST['limit'] ) ? max( 1, min( 20000, (int) $_POST['limit'] ) ) : 20000;
 		wp_send_json_success( [
-			'ids' => Plugin::instance()->alt_diff_store()->ids_by_status( 'diff', $limit ),
+			'ids' => Plugin::instance()->alt_diff_store()->pending_ids( $limit ),
 		] );
 	}
 
@@ -195,20 +194,6 @@ public function import_row(): void {
 		}
 		$res = ( new Alt_Syncer() )->apply( $diff );
 		if ( ! empty( $res['errors'] ) && 0 === (int) $res['tags_updated'] ) {
-			wp_send_json_error( [ 'message' => implode( ' | ', $res['errors'] ) ], 500 );
-		}
-		wp_send_json_success( $res );
-	}
-
-	public function alt_rollback_diff(): void {
-		$this->guard();
-		$id   = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
-		$diff = Plugin::instance()->alt_diff_store()->get( $id );
-		if ( ! $diff ) {
-			wp_send_json_error( [ 'message' => 'diff_not_found' ], 404 );
-		}
-		$res = ( new Alt_Syncer() )->rollback( $diff );
-		if ( ! empty( $res['errors'] ) && 0 === (int) $res['posts_restored'] ) {
 			wp_send_json_error( [ 'message' => implode( ' | ', $res['errors'] ) ], 500 );
 		}
 		wp_send_json_success( $res );

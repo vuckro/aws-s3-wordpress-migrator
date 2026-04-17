@@ -2,6 +2,10 @@
 /**
  * Alt_Diff_Store — read/write access to the wks3m_alt_diff table.
  *
+ * The table holds only rows that represent *pending* divergences. On apply
+ * success a row is deleted. On apply failure error_message is filled and
+ * the row stays visible in the UI so the user can triage.
+ *
  * @package WaasKitS3Migrator
  */
 
@@ -25,11 +29,8 @@ class Alt_Diff_Store {
 	}
 
 	/**
-	 * Upsert a divergence. If a row exists for (post_id, src):
-	 *   - with status='diff', refresh content_alt/library_alt/scanned_at
-	 *   - with status='applied'/'rolled_back', leave untouched (historical)
-	 *   - if content matches library now (re-synced elsewhere), caller should
-	 *     call resolve() instead — not this method.
+	 * Insert or refresh a divergence for a (post_id, src) pair. Clears any
+	 * prior error_message when refreshing.
 	 */
 	public function upsert_diff(
 		int $post_id,
@@ -42,29 +43,27 @@ class Alt_Diff_Store {
 		$table = $this->table();
 		$now   = current_time( 'mysql' );
 
-		$existing = $wpdb->get_row(
+		$existing_id = (int) $wpdb->get_var(
 			$wpdb->prepare(
-				"SELECT id, status FROM {$table} WHERE post_id = %d AND src = %s",
+				"SELECT id FROM {$table} WHERE post_id = %d AND src = %s",
 				$post_id,
 				$src
-			),
-			ARRAY_A
+			)
 		);
 
-		if ( $existing ) {
-			if ( 'diff' === $existing['status'] ) {
-				$wpdb->update(
-					$table,
-					[
-						'attachment_id' => $attachment_id,
-						'content_alt'   => $content_alt,
-						'library_alt'   => $library_alt,
-						'scanned_at'    => $now,
-					],
-					[ 'id' => (int) $existing['id'] ]
-				);
-			}
-			return (int) $existing['id'];
+		if ( $existing_id > 0 ) {
+			$wpdb->update(
+				$table,
+				[
+					'attachment_id' => $attachment_id,
+					'content_alt'   => $content_alt,
+					'library_alt'   => $library_alt,
+					'scanned_at'    => $now,
+					'error_message' => null,
+				],
+				[ 'id' => $existing_id ]
+			);
+			return $existing_id;
 		}
 
 		$wpdb->insert(
@@ -75,7 +74,6 @@ class Alt_Diff_Store {
 				'src'           => $src,
 				'content_alt'   => $content_alt,
 				'library_alt'   => $library_alt,
-				'status'        => 'diff',
 				'scanned_at'    => $now,
 			]
 		);
@@ -83,96 +81,65 @@ class Alt_Diff_Store {
 	}
 
 	/**
-	 * Remove stale 'diff' rows for this post whose (src) is not in the list of
-	 * currently-divergent srcs we just observed. Keeps the table clean when a
-	 * diff resolves itself (e.g. the user re-inserted the block in Gutenberg).
+	 * Remove rows for (post_id, src) pairs that are no longer divergent.
 	 *
-	 * @param string[] $current_srcs Srcs still divergent after this scan.
+	 * @param string[] $current_srcs Srcs still divergent after this scan pass.
 	 */
 	public function purge_resolved_for_post( int $post_id, array $current_srcs ): int {
 		global $wpdb;
 		$table = $this->table();
 		if ( empty( $current_srcs ) ) {
 			return (int) $wpdb->query(
-				$wpdb->prepare(
-					"DELETE FROM {$table} WHERE post_id = %d AND status = 'diff'",
-					$post_id
-				)
+				$wpdb->prepare( "DELETE FROM {$table} WHERE post_id = %d", $post_id )
 			);
 		}
 		$placeholders = implode( ',', array_fill( 0, count( $current_srcs ), '%s' ) );
 		return (int) $wpdb->query(
 			$wpdb->prepare(
-				"DELETE FROM {$table}
-				 WHERE post_id = %d AND status = 'diff' AND src NOT IN ({$placeholders})",
+				"DELETE FROM {$table} WHERE post_id = %d AND src NOT IN ({$placeholders})",
 				array_merge( [ $post_id ], $current_srcs )
 			)
 		);
 	}
 
-	public function mark_applied( int $id ): void {
+	public function delete( int $id ): void {
 		global $wpdb;
-		$wpdb->update(
-			$this->table(),
-			[
-				'status'        => 'applied',
-				'applied_at'    => current_time( 'mysql' ),
-				'error_message' => null,
-			],
-			[ 'id' => $id ]
-		);
-	}
-
-	public function mark_rolled_back( int $id ): void {
-		global $wpdb;
-		$wpdb->update(
-			$this->table(),
-			[
-				'status'         => 'rolled_back',
-				'rolled_back_at' => current_time( 'mysql' ),
-			],
-			[ 'id' => $id ]
-		);
+		$wpdb->delete( $this->table(), [ 'id' => $id ], [ '%d' ] );
 	}
 
 	public function mark_failed( int $id, string $error ): void {
 		global $wpdb;
 		$wpdb->update(
 			$this->table(),
-			[
-				'status'        => 'failed',
-				'error_message' => $error,
-			],
+			[ 'error_message' => $error ],
 			[ 'id' => $id ]
 		);
 	}
 
-	/**
-	 * @return int[]
-	 */
-	public function ids_by_status( string $status, int $limit = 20000 ): array {
+	/** @return int[] */
+	public function pending_ids( int $limit = 20000 ): array {
 		global $wpdb;
 		$rows = $wpdb->get_col(
 			$wpdb->prepare(
-				"SELECT id FROM {$this->table()} WHERE status = %s ORDER BY id ASC LIMIT %d",
-				$status,
+				"SELECT id FROM {$this->table()}
+				 WHERE error_message IS NULL OR error_message = ''
+				 ORDER BY id ASC
+				 LIMIT %d",
 				max( 1, $limit )
 			)
 		);
 		return array_map( 'intval', (array) $rows );
 	}
 
-	/** @return array<string,int> */
-	public function counts_by_status(): array {
+	/** @return array{total:int,errors:int} */
+	public function counts(): array {
 		global $wpdb;
-		$out = [ 'diff' => 0, 'applied' => 0, 'rolled_back' => 0, 'failed' => 0 ];
-		foreach ( (array) $wpdb->get_results( "SELECT status, COUNT(*) AS n FROM {$this->table()} GROUP BY status", ARRAY_A ) as $r ) {
-			$key = (string) $r['status'];
-			if ( isset( $out[ $key ] ) ) {
-				$out[ $key ] = (int) $r['n'];
-			}
-		}
-		return $out;
+		$table = $this->table();
+		$total  = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+		$errors = (int) $wpdb->get_var(
+			"SELECT COUNT(*) FROM {$table} WHERE error_message IS NOT NULL AND error_message <> ''"
+		);
+		return [ 'total' => $total, 'errors' => $errors ];
 	}
 
 	/**
@@ -190,9 +157,9 @@ class Alt_Diff_Store {
 
 		$where  = [];
 		$params = [];
-		if ( ! empty( $args['status'] ) ) {
-			$where[]  = 'status = %s';
-			$params[] = (string) $args['status'];
+
+		if ( ! empty( $args['errors_only'] ) ) {
+			$where[] = "error_message IS NOT NULL AND error_message <> ''";
 		}
 		if ( ! empty( $args['search'] ) ) {
 			$like     = '%' . $wpdb->esc_like( (string) $args['search'] ) . '%';

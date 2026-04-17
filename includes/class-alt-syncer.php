@@ -1,22 +1,21 @@
 <?php
 /**
- * Alt_Syncer — apply a single Alt_Diff (rewrite <img alt> in post_content)
- * and rollback from a per-diff backup.
+ * Alt_Syncer — apply a single Alt_Diff by rewriting the <img alt> inside
+ * post_content.
  *
  * Design notes:
- *  - The <img> tag is matched by its EXACT src attribute, not by class —
- *    class="wp-image-N" is not trustworthy on this codebase (the URL replacer
- *    stamps the same class onto every <img> in a post during a replace pass).
- *  - The library alt is re-read LIVE at apply time (not from the diff row)
- *    so that edits made to the library between scan and apply are honoured.
- *  - Backup key per diff (`_wks3m_alt_backup_{diff_id}`) keeps rollback
- *    granular — you can undo one image without touching the others.
- *  - We write post_content directly via $wpdb->update, NOT wp_update_post().
- *    Rationale: `wp_update_post` fires the full `save_post` cascade (Yoast
- *    reindex, revision insert, every SEO/form plugin's listeners). On a bulk
- *    of thousands of diffs that cascade is what kills the site. A direct
- *    UPDATE writes the same bytes without the fireworks. `clean_post_cache`
- *    keeps object-cache consistency.
+ *  - The <img> tag is matched by its EXACT src attribute (not by class).
+ *    class="wp-image-N" is not reliable here — the URL replacer stamps the
+ *    same class onto every <img> in a post during a replace pass.
+ *  - Library alt is re-read LIVE at apply time so library edits made after
+ *    the scan are honoured.
+ *  - Writes post_content via $wpdb->update (not wp_update_post). Bypasses the
+ *    save_post cascade — Yoast reindex, revision insert, SEO/form plugin
+ *    listeners — which on a bulk of thousands of diffs would saturate
+ *    MySQL/PHP-FPM.
+ *  - On success the diff row is deleted. No rollback, no backup postmeta:
+ *    a re-scan rebuilds the diff table from live state, and WP revisions
+ *    already exist as a safety net for the post-level changes.
  *
  * @package WaasKitS3Migrator
  */
@@ -26,8 +25,6 @@ namespace WKS3M;
 defined( 'ABSPATH' ) || exit;
 
 class Alt_Syncer {
-
-	private const BACKUP_META_PREFIX = '_wks3m_alt_backup_';
 
 	private Alt_Diff_Store $store;
 
@@ -49,8 +46,6 @@ class Alt_Syncer {
 			return [ 'tags_updated' => 0, 'library_alt' => '', 'errors' => [ 'post_not_found' ] ];
 		}
 
-		// Re-read library alt live. If it became empty, refuse to write (same
-		// rule as the scanner: never overwrite with an empty library value).
 		$library_alt = trim( (string) get_post_meta( $att_id, '_wp_attachment_image_alt', true ) );
 		if ( '' === $library_alt ) {
 			$this->store->mark_failed( $diff->id(), 'library_alt_empty' );
@@ -61,15 +56,10 @@ class Alt_Syncer {
 		[ $new, $count ] = $this->rewrite_alt( $original, $src, $library_alt );
 
 		if ( 0 === $count || $new === $original ) {
-			// Nothing to do — tag disappeared since scan. Mark applied anyway so
-			// the diff leaves the queue; it's not an error state.
-			$this->store->mark_applied( $diff->id() );
+			// Tag disappeared since the scan, or already in sync. Drop the row
+			// — nothing to fix. A fresh scan would not recreate it.
+			$this->store->delete( $diff->id() );
 			return [ 'tags_updated' => 0, 'library_alt' => $library_alt, 'errors' => [] ];
-		}
-
-		// Store backup only if we haven't already for this diff (idempotent).
-		if ( '' === (string) get_post_meta( $post_id, self::BACKUP_META_PREFIX . $diff->id(), true ) ) {
-			update_post_meta( $post_id, self::BACKUP_META_PREFIX . $diff->id(), $original );
 		}
 
 		if ( false === $this->write_post_content( $post_id, $new ) ) {
@@ -78,35 +68,15 @@ class Alt_Syncer {
 			return [ 'tags_updated' => 0, 'library_alt' => $library_alt, 'errors' => [ $err ] ];
 		}
 
-		$this->store->mark_applied( $diff->id() );
+		$this->store->delete( $diff->id() );
 		return [ 'tags_updated' => $count, 'library_alt' => $library_alt, 'errors' => [] ];
 	}
 
 	/**
-	 * @return array{posts_restored:int,errors:string[]}
-	 */
-	public function rollback( Alt_Diff $diff ): array {
-		$post_id = $diff->post_id();
-		$key     = self::BACKUP_META_PREFIX . $diff->id();
-		$backup  = get_post_meta( $post_id, $key, true );
-		if ( '' === $backup || null === $backup ) {
-			return [ 'posts_restored' => 0, 'errors' => [ 'no_backup' ] ];
-		}
-		if ( false === $this->write_post_content( $post_id, (string) $backup ) ) {
-			return [ 'posts_restored' => 0, 'errors' => [ $this->last_db_error() ] ];
-		}
-		delete_post_meta( $post_id, $key );
-		$this->store->mark_rolled_back( $diff->id() );
-		return [ 'posts_restored' => 1, 'errors' => [] ];
-	}
-
-	/**
-	 * Write post_content via a direct SQL UPDATE, bumping post_modified and
-	 * invalidating WP's object cache. Bypasses save_post hooks, wp_insert_post
-	 * filters and revisions — they are the root cause of the pool exhaustion
-	 * during bulk sync on plugin-heavy sites.
+	 * Direct SQL UPDATE of post_content + post_modified, plus cache flush.
+	 * Skips the save_post hook cascade (by design).
 	 *
-	 * @return int|false Number of rows updated, or false on DB error.
+	 * @return int|false Rows updated, or false on DB error.
 	 */
 	private function write_post_content( int $post_id, string $content ) {
 		global $wpdb;
@@ -135,8 +105,8 @@ class Alt_Syncer {
 	}
 
 	/**
-	 * Rewrite the alt attribute of every <img> whose src EXACTLY matches the
-	 * given URL. If the tag has no alt, inject one right after `<img`.
+	 * Rewrite the alt attribute of every <img> whose src EXACTLY matches.
+	 * Injects alt="…" right after `<img` when the tag has none.
 	 *
 	 * @return array{0:string,1:int} [new content, tags updated]
 	 */

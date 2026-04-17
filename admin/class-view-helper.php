@@ -42,8 +42,6 @@ class View_Helper {
 			'replaced'    => __( 'Remplacée', 'waaskit-s3-migrator' ),
 			'rolled_back' => __( 'Rollback', 'waaskit-s3-migrator' ),
 			'failed'      => __( 'Échec', 'waaskit-s3-migrator' ),
-			'diff'        => __( 'À synchroniser', 'waaskit-s3-migrator' ),
-			'applied'     => __( 'Synchronisé', 'waaskit-s3-migrator' ),
 		];
 		$label = $labels[ $status ] ?? ucfirst( $status );
 		return sprintf(

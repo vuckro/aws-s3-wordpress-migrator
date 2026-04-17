@@ -3,7 +3,7 @@
  * Plugin Name:       AWS S3 WordPress Migrator
  * Plugin URI:        https://github.com/vuckro/aws-s3-wordpress-migrator
  * Description:       Détecte les images hébergées sur un domaine externe (S3, CDN, CMS headless…), les importe dans la Media Library WordPress avec leurs métadonnées SEO, remplace les URLs dans le contenu, et garde un historique réversible.
- * Version:           1.2.0
+ * Version:           1.3.0
  * Requires at least: 6.0
  * Requires PHP:      8.1
  * Author:            WaasKit
@@ -18,7 +18,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WKS3M_VERSION', '1.2.0' );
+define( 'WKS3M_VERSION', '1.3.0' );
 define( 'WKS3M_PLUGIN_FILE', __FILE__ );
 define( 'WKS3M_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WKS3M_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

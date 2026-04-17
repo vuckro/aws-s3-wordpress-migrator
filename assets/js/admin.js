@@ -396,7 +396,7 @@
 		runAltScanBatch();
 	}
 
-	/* ---------- Alt sync: per-row apply / rollback ---------- */
+	/* ---------- Alt sync: per-row apply ---------- */
 
 	function handleAltApply(e) {
 		var $btn = $(e.currentTarget);
@@ -406,23 +406,7 @@
 			.done(function (resp) {
 				var $row = $btn.closest('tr');
 				if (!resp || !resp.success) { $btn.prop('disabled', false); alert(errMsg(resp)); return; }
-				setStatus($row, 'applied');
-				$btn.replaceWith('<button type="button" class="button wks3m-alt-rollback-btn" data-id="' + id + '">↺ ' + T.rolled_back + '</button>');
-			})
-			.fail(function () { $btn.prop('disabled', false); alert(T.error); });
-	}
-
-	function handleAltRollback(e) {
-		if (!window.confirm(T.confirm_alt_rollback)) return;
-		var $btn = $(e.currentTarget);
-		var id   = parseInt($btn.data('id'), 10);
-		$btn.prop('disabled', true);
-		post('wks3m_alt_rollback_diff', { id: id })
-			.done(function (resp) {
-				var $row = $btn.closest('tr');
-				if (!resp || !resp.success) { $btn.prop('disabled', false); alert(errMsg(resp)); return; }
-				setStatus($row, 'rolled_back');
-				$btn.replaceWith('<em>' + T.rolled_back + '</em>');
+				$row.fadeOut(200, function () { $(this).remove(); });
 			})
 			.fail(function () { $btn.prop('disabled', false); alert(T.error); });
 	}
@@ -446,13 +430,8 @@
 
 		var id = altBulk.ids[altBulk.cursor++];
 		post('wks3m_alt_apply_diff', { id: id }).always(function (resp) {
-			var $row = $('tr[data-diff-id="' + id + '"]');
-			if (resp && resp.success) {
-				altBulk.ok++;
-				if ($row.length) setStatus($row, 'applied');
-			} else {
-				altBulk.ko++;
-			}
+			if (resp && resp.success) altBulk.ok++; else altBulk.ko++;
+			$('tr[data-diff-id="' + id + '"]').fadeOut(120, function () { $(this).remove(); });
 			drawAltBulk();
 			setTimeout(altBulkWorker, 20);
 		});
@@ -537,7 +516,6 @@
 		$('#wks3m-alt-scan-start').on('click',   startAltScan);
 		$('#wks3m-alt-bulk-apply').on('click',   handleAltBulkApply);
 		$('#wks3m-alt-bulk-stop').on('click',    handleAltBulkStop);
-		$(document).on('click', '.wks3m-alt-apply-btn',    handleAltApply);
-		$(document).on('click', '.wks3m-alt-rollback-btn', handleAltRollback);
+		$(document).on('click', '.wks3m-alt-apply-btn', handleAltApply);
 	});
 }(jQuery));
