@@ -68,6 +68,10 @@ class Plugin {
 		return new Alt_Diff_Store();
 	}
 
+	public function alt_history_store(): Alt_History_Store {
+		return new Alt_History_Store();
+	}
+
 	public function alt_scanner(): Alt_Scanner {
 		return new Alt_Scanner( $this->alt_diff_store() );
 	}

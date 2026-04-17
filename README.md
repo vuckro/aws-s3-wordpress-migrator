@@ -50,7 +50,15 @@ Résolution src → attachment en deux passes :
 
 Le pivot n'est **jamais** la classe `wp-image-N` — elle n'est pas fiable après le replace d'URLs en masse.
 
-Flow : **Lancer le scan** → remplit `wp_wks3m_alt_diff` avec une ligne par `<img>` divergent → tableau filtrable/paginé → **Remplacer** par ligne ou **Tout synchroniser** en masse. Sur apply OK la ligne disparaît ; sur erreur elle reste avec le message affiché. Un nouveau scan reconstruit la liste depuis l'état courant — pas d'historique, pas de rollback (l'écriture passe en direct SQL sans créer de révision). Pour annuler un changement ALT en masse, relancer le scan après avoir ré-édité les ALT dans la Bibliothèque.
+Flow : **Lancer le scan** → remplit `wp_wks3m_alt_diff` avec une ligne par `<img>` divergent → tableau filtrable/paginé → **Remplacer** par ligne ou **Tout synchroniser** en masse. Sur apply OK la ligne disparaît de la liste des divergences et s'ajoute dans l'historique (`wp_wks3m_alt_history`) ; sur erreur elle reste visible dans la liste avec le message affiché.
+
+L'écriture passe en direct SQL (pas de révision créée, pas de save_post cascade). Pas de rollback natif — pour annuler un changement ALT, ré-éditer la valeur dans la Bibliothèque puis relancer un scan.
+
+**Sous-onglets** :
+- **Divergences** (défaut) — travail en attente avec bulk apply
+- **Historique** — journal en lecture seule de tous les syncs réussis
+
+**Nettoyage** : `Réglages → Nettoyer les données` vide la table des divergences en attente ou l'historique, quand le travail est fini et qu'on veut réduire l'empreinte BDD.
 
 ### 4. Historique & Rollback
 
@@ -114,7 +122,7 @@ waaskit-s3-migrator/
 | `error_message` | dernier message d'erreur si `failed` |
 | `created_at`, `last_seen_at`, `replaced_at`, `rolled_back_at` | timestamps |
 
-### `{prefix}wks3m_alt_diff` (synchro ALT)
+### `{prefix}wks3m_alt_diff` (synchro ALT — travail en attente)
 
 | Colonne | Description |
 |---|---|
@@ -126,7 +134,19 @@ waaskit-s3-migrator/
 | `error_message` | NULL en attente, rempli si apply a échoué |
 | `scanned_at` | timestamp |
 
-Les lignes sont transitoires : apply OK → DELETE, apply KO → `error_message` rempli, la ligne reste visible.
+Lignes transitoires : apply OK → DELETE (+ log dans `wks3m_alt_history`), apply KO → `error_message` rempli, la ligne reste visible.
+
+### `{prefix}wks3m_alt_history` (synchro ALT — journal)
+
+| Colonne | Description |
+|---|---|
+| `id` | PK |
+| `post_id`, `attachment_id`, `src` | identifie l'image |
+| `old_alt` | valeur dans le contenu au moment de l'apply |
+| `new_alt` | valeur de la biblio écrite |
+| `applied_at` | timestamp |
+
+Append-only. Visible dans l'onglet **Synchro ALT → Historique**. Vidable depuis **Réglages → Nettoyer les données** quand le travail est fini.
 
 ## Postmeta créés
 
@@ -148,7 +168,7 @@ Les lignes sont transitoires : apply OK → DELETE, apply KO → `error_message`
 | `wks3m_dry_run` | `1` | Placeholder — le toggle est par-session côté JS |
 | `wks3m_batch_size` | `10` | Placeholder |
 | `wks3m_defer_thumbnails` | `0` | Skip `wp_generate_attachment_metadata()` à l'import |
-| `wks3m_db_version` | `1.5.0` | Pour migrations de schéma |
+| `wks3m_db_version` | `1.6.0` | Pour migrations de schéma |
 
 Notes : la concurrence est fixée à 1 (séquentiel) et les retries à 3 par défaut — non configurables pour éviter les mauvaises surprises.
 

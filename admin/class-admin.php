@@ -27,6 +27,8 @@ class Admin {
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
 		add_action( 'admin_post_wks3m_save_sources', [ $this, 'save_sources' ] );
 		add_action( 'admin_post_wks3m_save_performance', [ $this, 'save_performance' ] );
+		add_action( 'admin_post_wks3m_purge_alt_diff', [ $this, 'purge_alt_diff' ] );
+		add_action( 'admin_post_wks3m_purge_alt_history', [ $this, 'purge_alt_history' ] );
 	}
 
 	public function add_menu(): void {
@@ -128,6 +130,31 @@ class Admin {
 		update_option( 'wks3m_defer_thumbnails', ! empty( $_POST['defer_thumbnails'] ) ? 1 : 0 );
 
 		wp_safe_redirect( View_Helper::tab_url( 'settings', [ 'perf_saved' => 1 ] ) );
+		exit;
+	}
+
+	public function purge_alt_diff(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'forbidden', 403 );
+		}
+		check_admin_referer( 'wks3m_purge_alt_diff' );
+
+		global $wpdb;
+		$wpdb->query( 'TRUNCATE TABLE ' . \WKS3M\Activator::alt_diff_table_name() );
+
+		wp_safe_redirect( View_Helper::tab_url( 'settings', [ 'purged' => 'diff' ] ) . '#wks3m-purge' );
+		exit;
+	}
+
+	public function purge_alt_history(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'forbidden', 403 );
+		}
+		check_admin_referer( 'wks3m_purge_alt_history' );
+
+		\WKS3M\Plugin::instance()->alt_history_store()->purge();
+
+		wp_safe_redirect( View_Helper::tab_url( 'settings', [ 'purged' => 'history' ] ) . '#wks3m-purge' );
 		exit;
 	}
 

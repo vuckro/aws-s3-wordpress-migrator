@@ -12,7 +12,7 @@ defined( 'ABSPATH' ) || exit;
 class Activator {
 
 	public const TABLE_VERSION_OPTION = 'wks3m_db_version';
-	public const CURRENT_DB_VERSION   = '1.5.0';
+	public const CURRENT_DB_VERSION   = '1.6.0';
 
 	public static function table_name(): string {
 		global $wpdb;
@@ -22,6 +22,11 @@ class Activator {
 	public static function alt_diff_table_name(): string {
 		global $wpdb;
 		return $wpdb->prefix . 'wks3m_alt_diff';
+	}
+
+	public static function alt_history_table_name(): string {
+		global $wpdb;
+		return $wpdb->prefix . 'wks3m_alt_history';
 	}
 
 	public static function activate(): void {
@@ -65,6 +70,7 @@ class Activator {
 			$wpdb->query( 'DROP TABLE IF EXISTS ' . self::alt_diff_table_name() );
 		}
 		self::install_alt_diff_table();
+		self::install_alt_history_table();
 
 		update_option( self::TABLE_VERSION_OPTION, self::CURRENT_DB_VERSION );
 	}
@@ -132,6 +138,34 @@ class Activator {
 			PRIMARY KEY  (id),
 			UNIQUE KEY post_src (post_id, src(191)),
 			KEY attachment_id (attachment_id)
+		) {$charset_collate};";
+
+		dbDelta( $sql );
+	}
+
+	/**
+	 * Append-only log of applied ALT syncs. Read-only from the UI, purgable
+	 * from the Settings tab when the user is done with the migration and wants
+	 * to reclaim space.
+	 */
+	private static function install_alt_history_table(): void {
+		global $wpdb;
+
+		$table           = self::alt_history_table_name();
+		$charset_collate = $wpdb->get_charset_collate();
+
+		$sql = "CREATE TABLE {$table} (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			post_id BIGINT UNSIGNED NOT NULL,
+			attachment_id BIGINT UNSIGNED NOT NULL,
+			src VARCHAR(500) NOT NULL,
+			old_alt TEXT NULL,
+			new_alt TEXT NULL,
+			applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY  (id),
+			KEY post_id (post_id),
+			KEY attachment_id (attachment_id),
+			KEY applied_at (applied_at)
 		) {$charset_collate};";
 
 		dbDelta( $sql );

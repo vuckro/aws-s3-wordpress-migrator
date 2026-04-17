@@ -27,9 +27,14 @@ defined( 'ABSPATH' ) || exit;
 class Alt_Syncer {
 
 	private Alt_Diff_Store $store;
+	private Alt_History_Store $history;
 
-	public function __construct( ?Alt_Diff_Store $store = null ) {
-		$this->store = $store ?? new Alt_Diff_Store();
+	public function __construct(
+		?Alt_Diff_Store $store = null,
+		?Alt_History_Store $history = null
+	) {
+		$this->store   = $store   ?? new Alt_Diff_Store();
+		$this->history = $history ?? new Alt_History_Store();
 	}
 
 	/**
@@ -68,6 +73,7 @@ class Alt_Syncer {
 			return [ 'tags_updated' => 0, 'library_alt' => $library_alt, 'errors' => [ $err ] ];
 		}
 
+		$this->history->log( $post_id, $att_id, $src, $diff->content_alt(), $library_alt );
 		$this->store->delete( $diff->id() );
 		return [ 'tags_updated' => $count, 'library_alt' => $library_alt, 'errors' => [] ];
 	}

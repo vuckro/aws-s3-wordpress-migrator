@@ -1,6 +1,7 @@
 <?php
 /**
- * Settings tab — deferred thumbnails option + import options reference.
+ * Settings tab — deferred thumbnails option, import options reference,
+ * Synchro ALT data purge.
  *
  * @package WaasKitS3Migrator
  */
@@ -8,9 +9,18 @@
 defined( 'ABSPATH' ) || exit;
 
 $perf_saved = ! empty( $_GET['perf_saved'] );
+$purged     = isset( $_GET['purged'] ) ? sanitize_key( (string) $_GET['purged'] ) : '';
+
+$diff_count    = (int) \WKS3M\Plugin::instance()->alt_diff_store()->counts()['total'];
+$history_count = \WKS3M\Plugin::instance()->alt_history_store()->count();
 ?>
 <?php if ( $perf_saved ) : ?>
 	<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Réglages enregistrés.', 'waaskit-s3-migrator' ); ?></p></div>
+<?php endif; ?>
+<?php if ( 'diff' === $purged ) : ?>
+	<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Divergences ALT en attente vidées.', 'waaskit-s3-migrator' ); ?></p></div>
+<?php elseif ( 'history' === $purged ) : ?>
+	<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Historique ALT vidé.', 'waaskit-s3-migrator' ); ?></p></div>
 <?php endif; ?>
 
 <div class="wks3m-panel">
@@ -88,4 +98,60 @@ $perf_saved = ! empty( $_GET['perf_saved'] );
 		);
 		?>
 	</p>
+</div>
+
+<div class="wks3m-panel" id="wks3m-purge">
+	<h2><?php esc_html_e( 'Nettoyer les données', 'waaskit-s3-migrator' ); ?></h2>
+	<p class="description">
+		<?php esc_html_e( 'Quand le travail de synchronisation est terminé, vide les tables pour réduire l\'empreinte en base. Les backups du remplacement d\'URLs (dans les postmeta _wks3m_backup_*) ne sont PAS touchés — ils restent disponibles pour le rollback depuis l\'onglet Historique & Rollback.', 'waaskit-s3-migrator' ); ?>
+	</p>
+
+	<table class="form-table" role="presentation">
+		<tbody>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Divergences ALT en attente', 'waaskit-s3-migrator' ); ?></th>
+				<td>
+					<p>
+						<?php
+						printf(
+							/* translators: %d: number of rows */
+							esc_html__( '%d ligne(s) dans wks3m_alt_diff.', 'waaskit-s3-migrator' ),
+							(int) $diff_count
+						);
+						?>
+					</p>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+						onsubmit="return confirm('<?php echo esc_js( __( 'Vider toutes les divergences ALT en attente ? Tu pourras relancer un scan pour les recréer.', 'waaskit-s3-migrator' ) ); ?>');">
+						<input type="hidden" name="action" value="wks3m_purge_alt_diff" />
+						<?php wp_nonce_field( 'wks3m_purge_alt_diff' ); ?>
+						<button type="submit" class="button" <?php disabled( 0, $diff_count ); ?>>
+							<?php esc_html_e( 'Vider les divergences en attente', 'waaskit-s3-migrator' ); ?>
+						</button>
+					</form>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Historique des syncs ALT', 'waaskit-s3-migrator' ); ?></th>
+				<td>
+					<p>
+						<?php
+						printf(
+							/* translators: %d: number of rows */
+							esc_html__( '%d ligne(s) dans wks3m_alt_history.', 'waaskit-s3-migrator' ),
+							(int) $history_count
+						);
+						?>
+					</p>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+						onsubmit="return confirm('<?php echo esc_js( __( 'Vider l\'historique complet des syncs ALT ? Cette action est irréversible (les posts ne sont pas modifiés).', 'waaskit-s3-migrator' ) ); ?>');">
+						<input type="hidden" name="action" value="wks3m_purge_alt_history" />
+						<?php wp_nonce_field( 'wks3m_purge_alt_history' ); ?>
+						<button type="submit" class="button" <?php disabled( 0, $history_count ); ?>>
+							<?php esc_html_e( 'Vider l\'historique', 'waaskit-s3-migrator' ); ?>
+						</button>
+					</form>
+				</td>
+			</tr>
+		</tbody>
+	</table>
 </div>

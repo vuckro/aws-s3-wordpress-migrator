@@ -16,6 +16,7 @@ global $wpdb;
 $tables = [
 	$wpdb->prefix . 'wks3m_migration_log',
 	$wpdb->prefix . 'wks3m_alt_diff',
+	$wpdb->prefix . 'wks3m_alt_history',
 ];
 foreach ( $tables as $t ) {
 	$wpdb->query( "DROP TABLE IF EXISTS {$t}" );
