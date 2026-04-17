@@ -1,7 +1,7 @@
 <?php
 /**
  * Replacer — swap external URLs for local Media Library URLs inside
- * post_content, with Gutenberg block awareness and a reversible backup.
+ * post_content, with Gutenberg block awareness.
  *
  * @package WaasKitS3Migrator
  */
@@ -11,9 +11,6 @@ namespace WKS3M;
 defined( 'ABSPATH' ) || exit;
 
 class Replacer {
-
-	private const BACKUP_META_PREFIX = '_wks3m_backup_';
-	private const REPLACEMENTS_META  = '_wks3m_replacements';
 
 	/**
 	 * Run the replacement for one migration-log row.
@@ -44,8 +41,6 @@ class Replacer {
 				$skipped++;
 				continue;
 			}
-			update_post_meta( $pid, self::BACKUP_META_PREFIX . $row->id(), $original );
-			$this->record_replacement( $pid, $row->id(), $attachment_id, array_keys( $map ) );
 
 			$res = wp_update_post( [ 'ID' => $pid, 'post_content' => $new ], true );
 			if ( is_wp_error( $res ) ) {
@@ -56,31 +51,6 @@ class Replacer {
 		}
 
 		return [ 'posts_updated' => $updated, 'posts_skipped' => $skipped, 'errors' => $errors ];
-	}
-
-	/**
-	 * Restore every affected post's content from backup, clear the log entry.
-	 *
-	 * @return array{posts_restored:int,errors:string[]}
-	 */
-	public function rollback_row( Migration_Row $row ): array {
-		$restored = 0;
-		$errors   = [];
-		foreach ( $row->post_ids() as $pid ) {
-			$backup = get_post_meta( $pid, self::BACKUP_META_PREFIX . $row->id(), true );
-			if ( '' === $backup || null === $backup ) {
-				continue;
-			}
-			$res = wp_update_post( [ 'ID' => $pid, 'post_content' => $backup ], true );
-			if ( is_wp_error( $res ) ) {
-				$errors[] = sprintf( '#%d: %s', $pid, $res->get_error_message() );
-				continue;
-			}
-			delete_post_meta( $pid, self::BACKUP_META_PREFIX . $row->id() );
-			$this->forget_replacement( $pid, $row->id() );
-			$restored++;
-		}
-		return [ 'posts_restored' => $restored, 'errors' => $errors ];
 	}
 
 	/** Build source-URL → local-URL map, covering plain + JSON-escaped forms. */
@@ -143,28 +113,5 @@ class Replacer {
 		);
 
 		return $content;
-	}
-
-	private function record_replacement( int $post_id, int $row_id, int $attachment_id, array $variants ): void {
-		$log            = (array) get_post_meta( $post_id, self::REPLACEMENTS_META, true );
-		$log[ $row_id ] = [
-			'attachment_id' => $attachment_id,
-			'replaced_at'   => current_time( 'mysql' ),
-			'variants'      => $variants,
-		];
-		update_post_meta( $post_id, self::REPLACEMENTS_META, $log );
-	}
-
-	private function forget_replacement( int $post_id, int $row_id ): void {
-		$log = (array) get_post_meta( $post_id, self::REPLACEMENTS_META, true );
-		if ( ! is_array( $log ) || ! isset( $log[ $row_id ] ) ) {
-			return;
-		}
-		unset( $log[ $row_id ] );
-		if ( empty( $log ) ) {
-			delete_post_meta( $post_id, self::REPLACEMENTS_META );
-		} else {
-			update_post_meta( $post_id, self::REPLACEMENTS_META, $log );
-		}
 	}
 }

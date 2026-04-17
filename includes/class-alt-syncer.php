@@ -4,18 +4,15 @@
  * post_content.
  *
  * Design notes:
- *  - The <img> tag is matched by its EXACT src attribute (not by class).
- *    class="wp-image-N" is not reliable here — the URL replacer stamps the
- *    same class onto every <img> in a post during a replace pass.
- *  - Library alt is re-read LIVE at apply time so library edits made after
- *    the scan are honoured.
- *  - Writes post_content via $wpdb->update (not wp_update_post). Bypasses the
- *    save_post cascade — Yoast reindex, revision insert, SEO/form plugin
- *    listeners — which on a bulk of thousands of diffs would saturate
- *    MySQL/PHP-FPM.
- *  - On success the diff row is deleted. No rollback, no backup postmeta:
- *    a re-scan rebuilds the diff table from live state, and WP revisions
- *    already exist as a safety net for the post-level changes.
+ *  - Matches <img> by its EXACT src attribute (not class="wp-image-N",
+ *    which isn't reliable after a URL-replace pass).
+ *  - Library alt is re-read live at apply time.
+ *  - Writes post_content via $wpdb->update directly — bypasses save_post
+ *    hooks, revisions, and caching-plugin cascades. No clean_post_cache()
+ *    either: it triggers listeners in slim-seo / Yoast / wpcode that can
+ *    stretch a sub-second write into seconds, and the AJAX response is
+ *    short-lived (no next read in this request).
+ *  - On success the diff row is deleted. No backup, no rollback.
  *
  * @package WaasKitS3Migrator
  */
@@ -27,14 +24,9 @@ defined( 'ABSPATH' ) || exit;
 class Alt_Syncer {
 
 	private Alt_Diff_Store $store;
-	private Alt_History_Store $history;
 
-	public function __construct(
-		?Alt_Diff_Store $store = null,
-		?Alt_History_Store $history = null
-	) {
-		$this->store   = $store   ?? new Alt_Diff_Store();
-		$this->history = $history ?? new Alt_History_Store();
+	public function __construct( ?Alt_Diff_Store $store = null ) {
+		$this->store = $store ?? new Alt_Diff_Store();
 	}
 
 	/**
@@ -68,19 +60,19 @@ class Alt_Syncer {
 		}
 
 		if ( false === $this->write_post_content( $post_id, $new ) ) {
-			$err = $this->last_db_error();
+			global $wpdb;
+			$err = $wpdb->last_error ?: 'db_update_failed';
 			$this->store->mark_failed( $diff->id(), $err );
 			return [ 'tags_updated' => 0, 'library_alt' => $library_alt, 'errors' => [ $err ] ];
 		}
 
-		$this->history->log( $post_id, $att_id, $src, $diff->content_alt(), $library_alt );
 		$this->store->delete( $diff->id() );
 		return [ 'tags_updated' => $count, 'library_alt' => $library_alt, 'errors' => [] ];
 	}
 
 	/**
-	 * Direct SQL UPDATE of post_content + post_modified, plus cache flush.
-	 * Skips the save_post hook cascade (by design).
+	 * Direct SQL UPDATE of post_content + post_modified. No save_post hooks,
+	 * no revisions, no cache cascade.
 	 *
 	 * @return int|false Rows updated, or false on DB error.
 	 */
@@ -88,7 +80,7 @@ class Alt_Syncer {
 		global $wpdb;
 		$now     = current_time( 'mysql' );
 		$now_gmt = current_time( 'mysql', true );
-		$result  = $wpdb->update(
+		return $wpdb->update(
 			$wpdb->posts,
 			[
 				'post_content'      => $content,
@@ -99,15 +91,6 @@ class Alt_Syncer {
 			[ '%s', '%s', '%s' ],
 			[ '%d' ]
 		);
-		if ( false !== $result ) {
-			clean_post_cache( $post_id );
-		}
-		return $result;
-	}
-
-	private function last_db_error(): string {
-		global $wpdb;
-		return $wpdb->last_error ?: 'db_update_failed';
 	}
 
 	/**

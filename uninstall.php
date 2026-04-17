@@ -12,19 +12,20 @@ defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
 
 global $wpdb;
 
-// Current tables.
+// Current tables + legacy ones from prior versions.
 $tables = [
 	$wpdb->prefix . 'wks3m_migration_log',
 	$wpdb->prefix . 'wks3m_alt_diff',
-	$wpdb->prefix . 'wks3m_alt_history',
+	$wpdb->prefix . 'wks3m_alt_history',  // removed in 1.6.0
+	$wpdb->prefix . 's3_migration_log',   // pre-white-label
 ];
 foreach ( $tables as $t ) {
 	$wpdb->query( "DROP TABLE IF EXISTS {$t}" );
 }
 
-// Legacy table from the pre-white-label version.
-$legacy = $wpdb->prefix . 's3_migration_log';
-$wpdb->query( "DROP TABLE IF EXISTS {$legacy}" );
+// Postmeta written by the removed URL-rollback feature.
+$wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE meta_key LIKE '\\_wks3m\\_backup\\_%'" );
+$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->postmeta} WHERE meta_key = %s", '_wks3m_replacements' ) );
 
 foreach (
 	[

@@ -12,7 +12,7 @@ defined( 'ABSPATH' ) || exit;
 class Activator {
 
 	public const TABLE_VERSION_OPTION = 'wks3m_db_version';
-	public const CURRENT_DB_VERSION   = '1.6.0';
+	public const CURRENT_DB_VERSION   = '1.7.0';
 
 	public static function table_name(): string {
 		global $wpdb;
@@ -24,11 +24,6 @@ class Activator {
 		return $wpdb->prefix . 'wks3m_alt_diff';
 	}
 
-	public static function alt_history_table_name(): string {
-		global $wpdb;
-		return $wpdb->prefix . 'wks3m_alt_history';
-	}
-
 	public static function activate(): void {
 		self::install_tables();
 		self::install_default_options();
@@ -36,8 +31,7 @@ class Activator {
 
 	/**
 	 * Seed default option values. Safe to call repeatedly — add_option() is a no-op
-	 * when the option already exists. Called from activate() and from the
-	 * upgrade safety-net in Plugin::boot().
+	 * when the option already exists.
 	 */
 	public static function install_default_options(): void {
 		add_option( 'wks3m_source_hosts', [] );
@@ -51,11 +45,14 @@ class Activator {
 	}
 
 	/**
-	 * Install / upgrade both schema tables in one pass. dbDelta() is idempotent.
+	 * Install / upgrade schema tables in one pass. dbDelta() is idempotent.
 	 *
-	 * On upgrade from < 1.5.0 we drop the alt_diff table entirely: its legacy
-	 * schema (status/applied_at/rolled_back_at columns + applied/rolled_back
-	 * rows) no longer matches the current feature. The next scan rebuilds it.
+	 * Upgrade paths:
+	 *  - from < 1.5.0: drop legacy wks3m_alt_diff (had status/applied/rolled_back
+	 *    columns that no longer exist); next scan rebuilds it.
+	 *  - from < 1.7.0: drop wks3m_alt_history (history feature removed) and
+	 *    delete leftover _wks3m_backup_* + _wks3m_replacements postmeta that the
+	 *    replacer used to write for rollback (feature removed).
 	 */
 	public static function install_tables(): void {
 		global $wpdb;
@@ -68,7 +65,13 @@ class Activator {
 			$wpdb->query( 'DROP TABLE IF EXISTS ' . self::alt_diff_table_name() );
 		}
 		self::install_alt_diff_table();
-		self::install_alt_history_table();
+
+		if ( '' !== $prev_version && version_compare( $prev_version, '1.7.0', '<' ) ) {
+			$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}wks3m_alt_history" );
+			// Free postmeta the removed rollback feature was writing to.
+			$wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE meta_key LIKE '\\_wks3m\\_backup\\_%'" );
+			$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->postmeta} WHERE meta_key = %s", '_wks3m_replacements' ) );
+		}
 
 		update_option( self::TABLE_VERSION_OPTION, self::CURRENT_DB_VERSION );
 	}
@@ -99,7 +102,6 @@ class Activator {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			last_seen_at DATETIME NULL,
 			replaced_at DATETIME NULL,
-			rolled_back_at DATETIME NULL,
 			PRIMARY KEY  (id),
 			UNIQUE KEY source_url_base (source_url_base(191)),
 			KEY status (status),
@@ -111,12 +113,8 @@ class Activator {
 	}
 
 	/**
-	 * Alt divergences detected by the Synchro ALT scan.
-	 *
-	 * One row per (post_id, src) pair waiting to be synced. On a successful
-	 * apply the row is deleted; on failure error_message is filled and the
-	 * row stays visible in the UI for triage. No history kept: a re-scan
-	 * rebuilds the table from live state.
+	 * Alt divergences detected by the Synchro ALT scan — pending work only.
+	 * Rows are deleted on successful apply; failed applies keep error_message.
 	 */
 	private static function install_alt_diff_table(): void {
 		global $wpdb;
@@ -136,34 +134,6 @@ class Activator {
 			PRIMARY KEY  (id),
 			UNIQUE KEY post_src (post_id, src(191)),
 			KEY attachment_id (attachment_id)
-		) {$charset_collate};";
-
-		dbDelta( $sql );
-	}
-
-	/**
-	 * Append-only log of applied ALT syncs. Read-only from the UI, purgable
-	 * from the Settings tab when the user is done with the migration and wants
-	 * to reclaim space.
-	 */
-	private static function install_alt_history_table(): void {
-		global $wpdb;
-
-		$table           = self::alt_history_table_name();
-		$charset_collate = $wpdb->get_charset_collate();
-
-		$sql = "CREATE TABLE {$table} (
-			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			post_id BIGINT UNSIGNED NOT NULL,
-			attachment_id BIGINT UNSIGNED NOT NULL,
-			src VARCHAR(500) NOT NULL,
-			old_alt TEXT NULL,
-			new_alt TEXT NULL,
-			applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY  (id),
-			KEY post_id (post_id),
-			KEY attachment_id (attachment_id),
-			KEY applied_at (applied_at)
 		) {$charset_collate};";
 
 		dbDelta( $sql );

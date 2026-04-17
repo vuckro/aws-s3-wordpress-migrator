@@ -104,7 +104,7 @@ class Mapping_Store {
 	/** @return array<string,int> */
 	public function counts_by_status(): array {
 		global $wpdb;
-		$out = [ 'pending' => 0, 'imported' => 0, 'replaced' => 0, 'rolled_back' => 0, 'failed' => 0 ];
+		$out = [ 'pending' => 0, 'imported' => 0, 'replaced' => 0, 'failed' => 0 ];
 		foreach ( (array) $wpdb->get_results( "SELECT status, COUNT(*) AS n FROM {$this->table()} GROUP BY status", ARRAY_A ) as $r ) {
 			$key = (string) $r['status'];
 			if ( isset( $out[ $key ] ) ) {
@@ -159,18 +159,6 @@ public function mark_imported( int $id, int $attachment_id ): void {
 			[
 				'status'        => 'failed',
 				'error_message' => $error,
-			],
-			[ 'id' => $id ]
-		);
-	}
-
-	public function mark_rolled_back( int $id ): void {
-		global $wpdb;
-		$wpdb->update(
-			$this->table(),
-			[
-				'status'         => 'rolled_back',
-				'rolled_back_at' => current_time( 'mysql' ),
 			],
 			[ 'id' => $id ]
 		);

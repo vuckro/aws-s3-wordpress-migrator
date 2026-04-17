@@ -37,11 +37,10 @@ class View_Helper {
 
 	public static function status_pill( string $status ): string {
 		$labels = [
-			'pending'     => __( 'En attente', 'waaskit-s3-migrator' ),
-			'imported'    => __( 'Importée', 'waaskit-s3-migrator' ),
-			'replaced'    => __( 'Remplacée', 'waaskit-s3-migrator' ),
-			'rolled_back' => __( 'Rollback', 'waaskit-s3-migrator' ),
-			'failed'      => __( 'Échec', 'waaskit-s3-migrator' ),
+			'pending'  => __( 'En attente', 'waaskit-s3-migrator' ),
+			'imported' => __( 'Importée', 'waaskit-s3-migrator' ),
+			'replaced' => __( 'Remplacée', 'waaskit-s3-migrator' ),
+			'failed'   => __( 'Échec', 'waaskit-s3-migrator' ),
 		];
 		$label = $labels[ $status ] ?? ucfirst( $status );
 		return sprintf(

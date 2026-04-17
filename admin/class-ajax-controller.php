@@ -11,7 +11,6 @@ use WKS3M\Alt_Syncer;
 use WKS3M\Importer;
 use WKS3M\Plugin;
 use WKS3M\Replacer;
-use WKS3M\Rollback_Manager;
 use WKS3M\Settings;
 use WKS3M\Transform;
 use WKS3M\Util;
@@ -27,7 +26,6 @@ class Ajax_Controller {
 			'wks3m_pending_ids'       => 'pending_ids',
 			'wks3m_import_row'        => 'import_row',
 			'wks3m_replace_row'       => 'replace_row',
-			'wks3m_rollback_row'      => 'rollback_row',
 			'wks3m_finalize_thumb'    => 'finalize_thumb',
 			'wks3m_pending_thumb_ids' => 'pending_thumb_ids',
 			// Bulk ALT/title transform on the queue rows (pre-import cleanup).
@@ -140,16 +138,6 @@ public function import_row(): void {
 			wp_send_json_error( [ 'message' => implode( ' | ', $res['errors'] ) ], 500 );
 		}
 		$store->mark_replaced( $id );
-		wp_send_json_success( $res );
-	}
-
-	public function rollback_row(): void {
-		$this->guard();
-		$id  = isset( $_POST['id'] ) ? (int) $_POST['id'] : 0;
-		$res = ( new Rollback_Manager() )->rollback( $id );
-		if ( ! empty( $res['errors'] ) && 0 === (int) $res['posts_restored'] ) {
-			wp_send_json_error( [ 'message' => implode( ' | ', $res['errors'] ) ], 500 );
-		}
 		wp_send_json_success( $res );
 	}
 

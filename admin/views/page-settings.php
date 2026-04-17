@@ -82,10 +82,9 @@ $perf_saved = ! empty( $_GET['perf_saved'] );
 	<p class="description">
 		<?php
 		printf(
-			/* translators: 1: Queue link, 2: Synchro ALT link */
-			esc_html__( 'Nettoyage des données : utilise les boutons « Nettoyer » au bas de %1$s ou de %2$s.', 'waaskit-s3-migrator' ),
-			'<a href="' . \WKS3M\Admin\View_Helper::tab_url( 'queue' ) . '"><strong>' . esc_html__( 'File d\'attente', 'waaskit-s3-migrator' ) . '</strong></a>',
-			'<a href="' . \WKS3M\Admin\View_Helper::tab_url( 'alt-sync' ) . '"><strong>' . esc_html__( 'Synchro ALT', 'waaskit-s3-migrator' ) . '</strong></a>'
+			/* translators: %s: Queue link */
+			esc_html__( 'Migration, transformation des ALT, synchro et nettoyage des données : tout est dans %s.', 'waaskit-s3-migrator' ),
+			'<a href="' . \WKS3M\Admin\View_Helper::tab_url( 'queue' ) . '"><strong>' . esc_html__( 'File d\'attente', 'waaskit-s3-migrator' ) . '</strong></a>'
 		);
 		?>
 	</p>

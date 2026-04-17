@@ -150,20 +150,6 @@
 			.fail(function () { $btn.prop('disabled', false); alert(T.error); });
 	}
 
-	function handleRollback(e) {
-		if (!window.confirm(T.confirm_rollback)) return;
-		var $btn = $(e.currentTarget);
-		var id   = parseInt($btn.data('id'), 10);
-		$btn.prop('disabled', true);
-		post('wks3m_rollback_row', { id: id })
-			.done(function (resp) {
-				if (!resp || !resp.success) { $btn.prop('disabled', false); alert(errMsg(resp)); return; }
-				setStatus($btn.closest('tr'), 'rolled_back');
-				$btn.replaceWith('<em>' + T.rolled_back + '</em>');
-			})
-			.fail(function () { $btn.prop('disabled', false); alert(T.error); });
-	}
-
 	/* ---------- Bulk import (parallel worker pool, stoppable) ----------
 	 *
 	 * N workers consume IDs from a shared queue. Each worker fires an AJAX
@@ -224,7 +210,7 @@
 		var summary = bulk;
 		$('#wks3m-bulk-spinner').removeClass('is-active');
 		$('#wks3m-bulk-stop').prop('hidden', true).prop('disabled', false).text(T.stop);
-		$('#wks3m-bulk-all, #wks3m-bulk-selected').prop('disabled', false);
+		$('#wks3m-bulk-all').prop('disabled', false);
 		if (!summary) return;
 		drawBulk(stopped ? T.stopped : T.done);
 		bulk = null;
@@ -248,7 +234,7 @@
 			running: true,
 			active: n
 		};
-		$('#wks3m-bulk-all, #wks3m-bulk-selected').prop('disabled', true);
+		$('#wks3m-bulk-all').prop('disabled', true);
 		$('#wks3m-bulk-stop').prop('hidden', false);
 		$('#wks3m-bulk-spinner').addClass('is-active');
 		drawBulk(T.bulk_progress);
@@ -333,11 +319,6 @@
 				startBulk(resp.data.ids || []);
 			})
 			.fail(function () { alert(T.error); });
-	}
-
-	function handleBulkSelected() {
-		var ids = $('.wks3m-row-check:checked').map(function () { return parseInt(this.value, 10); }).get();
-		startBulk(ids);
 	}
 
 	/* ---------- Queue: Transform rule (bulk ALT/title cleanup) ---------- */
@@ -574,18 +555,13 @@
 		// Scan.
 		$('#wks3m-scan-start').on('click', startScan);
 
-		// Queue / History per-row.
-		$(document).on('click', '.wks3m-import-btn',   handleImport);
-		$(document).on('click', '.wks3m-replace-btn',  handleReplace);
-		$(document).on('click', '.wks3m-rollback-btn', handleRollback);
+		// Queue per-row.
+		$(document).on('click', '.wks3m-import-btn',  handleImport);
+		$(document).on('click', '.wks3m-replace-btn', handleReplace);
 
-		// Bulk.
-		$('#wks3m-bulk-all').on('click',      handleBulkAll);
-		$('#wks3m-bulk-selected').on('click', handleBulkSelected);
-		$('#wks3m-bulk-stop').on('click',     handleStop);
-		$('#wks3m-select-all').on('change', function () {
-			$('.wks3m-row-check').prop('checked', $(this).is(':checked'));
-		});
+		// Bulk migration.
+		$('#wks3m-bulk-all').on('click',  handleBulkAll);
+		$('#wks3m-bulk-stop').on('click', handleStop);
 
 		// Finalize deferred thumbnails.
 		$('#wks3m-finalize-thumbs').on('click', handleFinalize);
