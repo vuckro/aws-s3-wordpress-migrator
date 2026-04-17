@@ -38,10 +38,6 @@ $alt_counts = $alt_store->counts();
 		<button type="button" class="button button-primary" id="wks3m-alt-scan-start">
 			<?php esc_html_e( 'Lancer le scan', 'waaskit-s3-migrator' ); ?>
 		</button>
-		<label style="margin-left:1em;">
-			<?php esc_html_e( 'Posts par requête :', 'waaskit-s3-migrator' ); ?>
-			<input type="number" id="wks3m-alt-scan-batch" value="50" min="10" max="200" step="10" />
-		</label>
 		<span class="spinner" id="wks3m-alt-scan-spinner" style="float:none;margin-left:.5em;"></span>
 	</p>
 

@@ -72,10 +72,6 @@ $saved     = isset( $_GET['sources_saved'] );
 		<button type="button" class="button button-primary" id="wks3m-scan-start">
 			<?php esc_html_e( 'Lancer le scan', 'waaskit-s3-migrator' ); ?>
 		</button>
-		<label style="margin-left:1em;">
-			<?php esc_html_e( 'Posts par requête :', 'waaskit-s3-migrator' ); ?>
-			<input type="number" id="wks3m-scan-batch" value="100" min="10" max="500" step="10" />
-		</label>
 		<span class="spinner" id="wks3m-scan-spinner" style="float:none;margin-left:.5em;"></span>
 	</p>
 

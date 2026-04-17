@@ -84,7 +84,7 @@
 	function startScan() {
 		scan = {
 			offset: 0,
-			limit: parseInt($('#wks3m-scan-batch').val(), 10) || 100,
+			limit: 100,
 			total: 0, processed: 0, urls: 0,
 			running: true
 		};
@@ -423,7 +423,7 @@
 	function startAltScan() {
 		altScan = {
 			offset: 0,
-			limit: parseInt($('#wks3m-alt-scan-batch').val(), 10) || 50,
+			limit: 50,
 			total: 0, processed: 0, imgs: 0, diffs: 0,
 			running: true
 		};
