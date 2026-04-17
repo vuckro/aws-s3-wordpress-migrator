@@ -39,11 +39,15 @@ $status_tabs = [
 $rows = View_Helper::wrap_rows( $data['items'] );
 
 $purged_rows  = isset( $_GET['purged_rows'] ) ? (int) $_GET['purged_rows'] : -1;
+$purged_revs  = isset( $_GET['purged_revs'] ) ? (int) $_GET['purged_revs'] : -1;
 $purged_metas = isset( $_GET['purged_metas'] ) ? (int) $_GET['purged_metas'] : 0;
 
 $finished_count = (int) ( $counts['replaced'] ?? 0 )
 	+ (int) ( $counts['rolled_back'] ?? 0 )
 	+ (int) ( $counts['failed'] ?? 0 );
+
+global $wpdb;
+$revisions_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'revision'" );
 ?>
 <?php if ( $purged_rows >= 0 ) : ?>
 	<div class="notice notice-success is-dismissible"><p>
@@ -52,6 +56,18 @@ $finished_count = (int) ( $counts['replaced'] ?? 0 )
 			/* translators: 1: number of migration rows deleted, 2: number of postmeta entries deleted */
 			esc_html__( 'Purge terminée : %1$d ligne(s) supprimée(s) + %2$d entrée(s) postmeta nettoyée(s).', 'waaskit-s3-migrator' ),
 			$purged_rows,
+			$purged_metas
+		);
+		?>
+	</p></div>
+<?php endif; ?>
+<?php if ( $purged_revs >= 0 ) : ?>
+	<div class="notice notice-success is-dismissible"><p>
+		<?php
+		printf(
+			/* translators: 1: number of revisions deleted, 2: number of postmeta entries deleted */
+			esc_html__( 'Purge des révisions terminée : %1$d révision(s) supprimée(s) + %2$d entrée(s) postmeta nettoyée(s).', 'waaskit-s3-migrator' ),
+			$purged_revs,
 			$purged_metas
 		);
 		?>
@@ -203,4 +219,32 @@ $finished_count = (int) ( $counts['replaced'] ?? 0 )
 			<?php esc_html_e( 'Purger les lignes terminées', 'waaskit-s3-migrator' ); ?>
 		</button>
 	</form>
+
+	<hr />
+
+	<h3><?php esc_html_e( 'Purger les anciennes révisions de posts', 'waaskit-s3-migrator' ); ?></h3>
+	<p class="description">
+		<?php
+		printf(
+			/* translators: %d: total revision count */
+			esc_html__( '%d révision(s) totales dans wp_posts. Les migrations d\'URLs et les éditions successives empilent les révisions — c\'est souvent la principale source de gros `wp_posts`. La purge garde les N plus récentes par post pour conserver un filet de sécurité native WordPress.', 'waaskit-s3-migrator' ),
+			(int) $revisions_count
+		);
+		?>
+	</p>
+	<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+		onsubmit="return confirm('<?php echo esc_js( __( 'Supprimer toutes les révisions au-delà du nombre indiqué ?', 'waaskit-s3-migrator' ) ); ?>');">
+		<input type="hidden" name="action" value="wks3m_purge_revisions" />
+		<?php wp_nonce_field( 'wks3m_purge_revisions' ); ?>
+		<label>
+			<?php esc_html_e( 'Garder par post :', 'waaskit-s3-migrator' ); ?>
+			<input type="number" name="keep" value="5" min="0" max="100" class="small-text" />
+		</label>
+		<button type="submit" class="button" style="margin-left:.5em;" <?php disabled( 0, $revisions_count ); ?>>
+			<?php esc_html_e( 'Purger les anciennes révisions', 'waaskit-s3-migrator' ); ?>
+		</button>
+	</form>
+	<p class="description" style="margin-top:.6em;">
+		<?php esc_html_e( 'Conseil : ajoute `define(\'WP_POST_REVISIONS\', 5);` dans wp-config.php pour plafonner à l\'avenir.', 'waaskit-s3-migrator' ); ?>
+	</p>
 </div>

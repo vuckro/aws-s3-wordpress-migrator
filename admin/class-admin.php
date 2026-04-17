@@ -30,6 +30,7 @@ class Admin {
 		add_action( 'admin_post_wks3m_purge_alt_diff', [ $this, 'purge_alt_diff' ] );
 		add_action( 'admin_post_wks3m_purge_alt_history', [ $this, 'purge_alt_history' ] );
 		add_action( 'admin_post_wks3m_purge_queue', [ $this, 'purge_queue' ] );
+		add_action( 'admin_post_wks3m_purge_revisions', [ $this, 'purge_revisions' ] );
 	}
 
 	public function add_menu(): void {
@@ -193,6 +194,58 @@ class Admin {
 				'queue',
 				[
 					'purged_rows'  => $rows_deleted,
+					'purged_metas' => $metas_deleted,
+				]
+			)
+		);
+		exit;
+	}
+
+	/**
+	 * Delete older post revisions, keeping the N most recent per parent post.
+	 *
+	 * On migration-heavy sites this is usually the biggest BDD space reclaim —
+	 * wp_update_post() calls from earlier plugin versions (and any heavy
+	 * editing) each created a full-content revision, and WordPress keeps them
+	 * all unless WP_POST_REVISIONS is defined.
+	 *
+	 * Direct SQL — wp_delete_post_revision() would fire 10k+ delete_post hooks.
+	 */
+	public function purge_revisions(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( 'forbidden', 403 );
+		}
+		check_admin_referer( 'wks3m_purge_revisions' );
+
+		$keep = isset( $_POST['keep'] ) ? max( 0, min( 100, (int) $_POST['keep'] ) ) : 5;
+
+		global $wpdb;
+		$ids = $wpdb->get_col( $wpdb->prepare(
+			"SELECT ID FROM (
+				SELECT ID, ROW_NUMBER() OVER (PARTITION BY post_parent ORDER BY post_date DESC) AS rn
+				FROM {$wpdb->posts}
+				WHERE post_type = 'revision'
+			) r
+			WHERE rn > %d",
+			$keep
+		) );
+
+		$rows_deleted  = 0;
+		$metas_deleted = 0;
+		if ( ! empty( $ids ) ) {
+			// Chunk to avoid MySQL max_allowed_packet blowouts on massive IN lists.
+			foreach ( array_chunk( array_map( 'intval', $ids ), 1000 ) as $chunk ) {
+				$in             = implode( ',', $chunk );
+				$rows_deleted  += (int) $wpdb->query( "DELETE FROM {$wpdb->posts} WHERE ID IN ({$in}) AND post_type = 'revision'" );
+				$metas_deleted += (int) $wpdb->query( "DELETE FROM {$wpdb->postmeta} WHERE post_id IN ({$in})" );
+			}
+		}
+
+		wp_safe_redirect(
+			View_Helper::tab_url(
+				'queue',
+				[
+					'purged_revs'  => $rows_deleted,
 					'purged_metas' => $metas_deleted,
 				]
 			)
