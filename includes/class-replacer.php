@@ -42,15 +42,42 @@ class Replacer {
 				continue;
 			}
 
-			$res = wp_update_post( [ 'ID' => $pid, 'post_content' => $new ], true );
-			if ( is_wp_error( $res ) ) {
-				$errors[] = sprintf( '#%d: %s', $pid, $res->get_error_message() );
+			if ( false === $this->write_post_content( (int) $pid, $new ) ) {
+				global $wpdb;
+				$errors[] = sprintf( '#%d: %s', $pid, $wpdb->last_error ?: 'db_update_failed' );
 				continue;
 			}
 			$updated++;
 		}
 
 		return [ 'posts_updated' => $updated, 'posts_skipped' => $skipped, 'errors' => $errors ];
+	}
+
+	/**
+	 * Direct SQL UPDATE of post_content + post_modified.
+	 *
+	 * Bypasses wp_update_post() and its save_post cascade — Yoast reindex,
+	 * slim-seo analysis, revision insert, WPCode hooks. On a bulk migration
+	 * with thousands of rows × N posts per row, that cascade is what used to
+	 * drown the site. Same pattern as Alt_Syncer for the same reason.
+	 *
+	 * @return int|false Rows updated, or false on DB error.
+	 */
+	private function write_post_content( int $post_id, string $content ) {
+		global $wpdb;
+		$now     = current_time( 'mysql' );
+		$now_gmt = current_time( 'mysql', true );
+		return $wpdb->update(
+			$wpdb->posts,
+			[
+				'post_content'      => $content,
+				'post_modified'     => $now,
+				'post_modified_gmt' => $now_gmt,
+			],
+			[ 'ID' => $post_id ],
+			[ '%s', '%s', '%s' ],
+			[ '%d' ]
+		);
 	}
 
 	/** Build source-URL → local-URL map, covering plain + JSON-escaped forms. */
