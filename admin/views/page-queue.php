@@ -269,7 +269,7 @@ $revisions_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WH
 <!--  PANEL 3 : Synchro ALT                                        -->
 <!-- ============================================================ -->
 <div class="wks3m-panel">
-	<h2><?php esc_html_e( 'Synchro ALT (contenu ↔ Bibliothèque)', 'waaskit-s3-migrator' ); ?></h2>
+	<h2><?php esc_html_e( 'Synchro ALT (Bibliothèque → contenu)', 'waaskit-s3-migrator' ); ?></h2>
 	<p class="description">
 		<?php esc_html_e( 'Détecte chaque <img> dans le contenu des articles dont l\'attribut alt diverge de la Bibliothèque WordPress. Résolution par src URL (core attachment_url_to_postid + fallback via le journal pour les URLs externes S3/CDN encore présentes). Rien n\'est modifié pendant le scan.', 'waaskit-s3-migrator' ); ?>
 	</p>
