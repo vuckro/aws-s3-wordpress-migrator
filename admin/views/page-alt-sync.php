@@ -124,7 +124,7 @@ if ( ! in_array( $section, [ 'divergences', 'missing' ], true ) ) {
 					<th style="width:72px"><?php esc_html_e( 'Aperçu', 'waaskit-s3-migrator' ); ?></th>
 					<th><?php esc_html_e( 'Post', 'waaskit-s3-migrator' ); ?></th>
 					<th><?php esc_html_e( 'ALT', 'waaskit-s3-migrator' ); ?><br><small class="description"><?php esc_html_e( 'contenu actuel → biblio', 'waaskit-s3-migrator' ); ?></small></th>
-					<th><?php esc_html_e( 'Title', 'waaskit-s3-migrator' ); ?><br><small class="description"><?php esc_html_e( 'contenu actuel → biblio', 'waaskit-s3-migrator' ); ?></small></th>
+					<th><?php esc_html_e( 'Title', 'waaskit-s3-migrator' ); ?><br><small class="description"><?php esc_html_e( 'supprimé lors de la synchro', 'waaskit-s3-migrator' ); ?></small></th>
 					<th style="width:160px"><?php esc_html_e( 'Action', 'waaskit-s3-migrator' ); ?></th>
 				</tr>
 			</thead>
@@ -132,8 +132,8 @@ if ( ! in_array( $section, [ 'divergences', 'missing' ], true ) ) {
 				<?php foreach ( $alt_data['items'] as $raw ) :
 					$diff = new Alt_Diff( (array) $raw );
 					$post = get_post( $diff->post_id() );
-					$alt_diverges   = ( '' !== $diff->library_alt() )   && ( $diff->library_alt()   !== $diff->content_alt() );
-					$title_diverges = ( '' !== $diff->library_title() ) && ( $diff->library_title() !== $diff->content_title() );
+					$alt_diverges   = ( '' !== $diff->library_alt() ) && ( $diff->library_alt() !== $diff->content_alt() );
+					$title_to_strip = '' !== $diff->content_title();
 				?>
 					<tr data-diff-id="<?php echo (int) $diff->id(); ?>">
 						<td><?php echo View_Helper::thumb_html( $diff->attachment_id() ?: null, $diff->src() ); ?></td>
@@ -159,14 +159,12 @@ if ( ! in_array( $section, [ 'divergences', 'missing' ], true ) ) {
 								<small class="wks3m-muted">✓ OK</small>
 							<?php endif; ?>
 						</td>
-						<td<?php echo $title_diverges ? ' class="wks3m-diverges"' : ''; ?>>
-							<?php if ( $title_diverges ) : ?>
-								<small><?php echo '' === $diff->content_title() ? '<em>(vide)</em>' : esc_html( $diff->content_title() ); ?></small>
-								<br>→ <strong><?php echo esc_html( $diff->library_title() ); ?></strong>
-							<?php elseif ( '' === $diff->library_title() ) : ?>
-								<small class="wks3m-muted">—</small>
+						<td<?php echo $title_to_strip ? ' class="wks3m-diverges"' : ''; ?>>
+							<?php if ( $title_to_strip ) : ?>
+								<small><?php echo esc_html( $diff->content_title() ); ?></small>
+								<br>→ <strong><?php esc_html_e( '(supprimée)', 'waaskit-s3-migrator' ); ?></strong>
 							<?php else : ?>
-								<small class="wks3m-muted">✓ OK</small>
+								<small class="wks3m-muted">—</small>
 							<?php endif; ?>
 						</td>
 						<td>

@@ -39,23 +39,20 @@ class Alt_Scanner {
 	 * to push the new alt into <img> tags.
 	 */
 	/**
-	 * Library ALT + TITLE to push to content, with filtering + cross-fill.
+	 * Library ALT to push to content.
 	 *
-	 * 1. Read raw ALT (postmeta) and TITLE (post_title).
-	 * 2. Drop filename-derived TITLEs (noise like "DSC_1234", "Img 4567").
-	 * 3. Cross-fill library alt↔title so both <img> attributes get populated.
-	 * 4. Last resort: when both library sides are empty, fall back to
-	 *    $content_alt_fallback so pages that already have an <img alt> set
-	 *    inline (legacy blocks, Yoast auto-fill, etc.) still get a matching
-	 *    <img title> synced without requiring a manual Bibliothèque edit.
+	 * 1. Read raw ALT (postmeta).
+	 * 2. When ALT is empty, fall back to the attachment post_title — but only
+	 *    if it isn't a filename-derived auto-title (noise like "DSC_1234").
+	 * 3. Last resort: when the library has nothing usable, fall back to the
+	 *    value already in $content_alt_fallback so pages with an inline
+	 *    <img alt> set by legacy blocks / SEO plugins aren't flagged as
+	 *    divergent without a usable replacement.
 	 *
-	 * Shared by the scanner (divergence detection) and the syncer (apply) —
-	 * keeping both in lockstep avoids filename-derived titles leaking back
-	 * into content.
-	 *
-	 * @return array{0:string,1:string} [library_alt, library_title]
+	 * Title sync was removed — the syncer strips <img title> instead of
+	 * pushing it. See class-alt-syncer.php.
 	 */
-	public static function library_values( int $attachment_id, string $src, string $content_alt_fallback = '' ): array {
+	public static function library_values( int $attachment_id, string $src, string $content_alt_fallback = '' ): string {
 		$alt   = trim( (string) get_post_meta( $attachment_id, '_wp_attachment_image_alt', true ) );
 		$title = trim( (string) get_the_title( $attachment_id ) );
 
@@ -63,14 +60,15 @@ class Alt_Scanner {
 			$title = '';
 		}
 
-		if ( '' === $alt   && '' !== $title ) { $alt   = $title; }
-		if ( '' === $title && '' !== $alt )   { $title = $alt; }
-
-		if ( '' === $alt && '' === $title && '' !== $content_alt_fallback ) {
-			$alt = $title = $content_alt_fallback;
+		if ( '' === $alt && '' !== $title ) {
+			$alt = $title;
 		}
 
-		return [ $alt, $title ];
+		if ( '' === $alt && '' !== $content_alt_fallback ) {
+			$alt = $content_alt_fallback;
+		}
+
+		return $alt;
 	}
 
 	public static function fill_alt_from_title( int $attachment_id ): string {
@@ -211,24 +209,26 @@ class Alt_Scanner {
 				$content_title = trim( html_entity_decode( $tm[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
 			}
 
-			// Library sources of truth — filtered + cross-filled, with
-			// content_alt promoted as fallback so pages with an <img alt>
-			// but empty Bibliothèque still get a matching title synced.
-			[ $library_alt, $library_title ] = self::library_values( $att_id, $src, $content_alt );
+			// Library alt — filtered, with title fallback and content_alt
+			// promoted as last resort so pages with an inline <img alt> but
+			// empty Bibliothèque aren't flagged as divergent unnecessarily.
+			$library_alt = self::library_values( $att_id, $src, $content_alt );
 
-			// Nothing to push on either side — flag the attachment for manual
-			// library editing when the content itself also has no alt.
-			if ( '' === $library_alt && '' === $library_title ) {
-				if ( '' === $content_alt ) {
+			// A divergence is anything the syncer will act on:
+			//   - alt differs from the library side (only when the library
+			//     side has something to push), OR
+			//   - content still carries a <img title="…"> the syncer needs
+			//     to strip (title sync was removed — all title attributes on
+			//     matched tags get cleaned up on the next apply).
+			$alt_diverges      = ( '' !== $library_alt ) && ( $library_alt !== $content_alt );
+			$title_to_strip    = '' !== $content_title;
+
+			if ( ! $alt_diverges && ! $title_to_strip ) {
+				// If nothing diverges AND the library has no alt to propose,
+				// the attachment still needs a human-written alt.
+				if ( '' === $library_alt && '' === $content_alt ) {
 					$missing[] = $att_id;
 				}
-				continue;
-			}
-
-			// A divergence exists on alt OR on title (only if the library side has a value to push).
-			$alt_diverges   = ( '' !== $library_alt ) && ( $library_alt !== $content_alt );
-			$title_diverges = ( '' !== $library_title ) && ( $library_title !== $content_title );
-			if ( ! $alt_diverges && ! $title_diverges ) {
 				continue;
 			}
 
@@ -238,8 +238,7 @@ class Alt_Scanner {
 				$src,
 				$content_alt,
 				$library_alt,
-				$content_title,
-				$library_title
+				$content_title
 			);
 			$current_srcs[] = $src;
 			$diffs++;

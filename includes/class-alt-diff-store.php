@@ -38,8 +38,7 @@ class Alt_Diff_Store {
 		string $src,
 		string $content_alt,
 		string $library_alt,
-		string $content_title = '',
-		string $library_title = ''
+		string $content_title = ''
 	): int {
 		global $wpdb;
 		$table = $this->table();
@@ -61,7 +60,7 @@ class Alt_Diff_Store {
 					'content_alt'   => $content_alt,
 					'library_alt'   => $library_alt,
 					'content_title' => $content_title,
-					'library_title' => $library_title,
+					'library_title' => '',
 					'scanned_at'    => $now,
 					'error_message' => null,
 				],
@@ -79,7 +78,7 @@ class Alt_Diff_Store {
 				'content_alt'   => $content_alt,
 				'library_alt'   => $library_alt,
 				'content_title' => $content_title,
-				'library_title' => $library_title,
+				'library_title' => '',
 				'scanned_at'    => $now,
 			]
 		);

@@ -1,13 +1,15 @@
 <?php
 /**
- * Alt_Syncer — apply a single Alt_Diff by rewriting the <img alt> and
- * <img title> attributes inside post_content.
+ * Alt_Syncer — apply a single Alt_Diff by rewriting the <img alt> attribute
+ * inside post_content, and stripping any <img title> the plugin used to
+ * inject. Title is no longer a syncable field: the syncer only writes alt,
+ * and deletes title="…" on every matched tag.
  *
  * Design notes:
  *  - Matches <img> by its EXACT src attribute (not class="wp-image-N",
  *    which isn't reliable after a URL-replace pass).
- *  - Library values are re-read live at apply time (alt = postmeta
- *    _wp_attachment_image_alt, title = attachment post_title).
+ *  - Library alt is re-read live at apply time (postmeta
+ *    _wp_attachment_image_alt).
  *  - Writes post_content via $wpdb->update directly — bypasses save_post
  *    hooks, revisions, and caching-plugin cascades. No clean_post_cache()
  *    either: it triggers listeners in slim-seo / Yoast / wpcode that can
@@ -31,50 +33,44 @@ class Alt_Syncer {
 	}
 
 	/**
-	 * @return array{tags_updated:int,library_alt:string,library_title:string,errors:string[]}
+	 * @return array{tags_updated:int,library_alt:string,errors:string[]}
 	 */
 	public function apply( Alt_Diff $diff ): array {
 		$post_id = $diff->post_id();
 		$src     = $diff->src();
-		$att_id  = $diff->attachment_id();
 
 		$post = get_post( $post_id );
 		if ( ! $post ) {
 			$this->store->mark_failed( $diff->id(), 'post_not_found' );
-			return [ 'tags_updated' => 0, 'library_alt' => '', 'library_title' => '', 'errors' => [ 'post_not_found' ] ];
+			return [ 'tags_updated' => 0, 'library_alt' => '', 'errors' => [ 'post_not_found' ] ];
 		}
 
-		// Use the values stored at scan time — the scanner already applied
-		// the filename-filter, alt↔title cross-fill, and content_alt fallback
+		// Use the alt stored at scan time — the scanner already applied the
+		// filename-filter, alt-from-title fallback, and content_alt fallback
 		// when the library is empty. Re-deriving here would lose the fallback
-		// (content state not in scope) and let filename-derived titles leak.
-		// If the user edits the library, a rescan refreshes these.
-		$library_alt   = $diff->library_alt();
-		$library_title = $diff->library_title();
-
-		if ( '' === $library_alt && '' === $library_title ) {
-			$this->store->mark_failed( $diff->id(), 'library_empty' );
-			return [ 'tags_updated' => 0, 'library_alt' => '', 'library_title' => '', 'errors' => [ 'library_empty' ] ];
-		}
+		// (content state not in scope). If the user edits the library, a
+		// rescan refreshes this.
+		$library_alt = $diff->library_alt();
 
 		$original = (string) $post->post_content;
-		[ $new, $count ] = $this->rewrite_tag( $original, $src, $library_alt, $library_title );
+		[ $new, $count ] = $this->rewrite_tag( $original, $src, $library_alt );
 
 		if ( 0 === $count || $new === $original ) {
-			// Tag disappeared since the scan, or already in sync. Drop the row.
+			// Tag disappeared since the scan, or already in sync with no
+			// stray title to strip. Drop the row.
 			$this->store->delete( $diff->id() );
-			return [ 'tags_updated' => 0, 'library_alt' => $library_alt, 'library_title' => $library_title, 'errors' => [] ];
+			return [ 'tags_updated' => 0, 'library_alt' => $library_alt, 'errors' => [] ];
 		}
 
 		if ( false === $this->write_post_content( $post_id, $new ) ) {
 			global $wpdb;
 			$err = $wpdb->last_error ?: 'db_update_failed';
 			$this->store->mark_failed( $diff->id(), $err );
-			return [ 'tags_updated' => 0, 'library_alt' => $library_alt, 'library_title' => $library_title, 'errors' => [ $err ] ];
+			return [ 'tags_updated' => 0, 'library_alt' => $library_alt, 'errors' => [ $err ] ];
 		}
 
 		$this->store->delete( $diff->id() );
-		return [ 'tags_updated' => $count, 'library_alt' => $library_alt, 'library_title' => $library_title, 'errors' => [] ];
+		return [ 'tags_updated' => $count, 'library_alt' => $library_alt, 'errors' => [] ];
 	}
 
 	/**
@@ -101,14 +97,17 @@ class Alt_Syncer {
 	}
 
 	/**
-	 * Rewrite alt AND title on every <img> whose src EXACTLY matches.
-	 * - Replaces the existing attribute, or injects it after `<img` if absent.
-	 * - Library empty value → attribute is left alone (we never overwrite with
-	 *   an empty string).
+	 * Rewrite every <img> whose src EXACTLY matches:
+	 *   - upsert alt (skipped silently when the library side is empty),
+	 *   - strip any title="…" attribute (legacy values injected by the
+	 *     previous sync-title feature).
+	 *
+	 * A tag counts as modified when either the alt changed OR a title was
+	 * stripped.
 	 *
 	 * @return array{0:string,1:int} [new content, tags modified]
 	 */
-	private function rewrite_tag( string $content, string $src, string $new_alt, string $new_title ): array {
+	private function rewrite_tag( string $content, string $src, string $new_alt ): array {
 		if ( '' === $content || '' === $src ) {
 			return [ $content, 0 ];
 		}
@@ -116,12 +115,12 @@ class Alt_Syncer {
 		$pattern = '#<img\b[^>]*?\bsrc=(["\'])' . preg_quote( $src, '#' ) . '\1[^>]*>#i';
 		$count   = 0;
 
-		$new = preg_replace_callback( $pattern, function ( array $m ) use ( $new_alt, $new_title, &$count ): string {
+		$new = preg_replace_callback( $pattern, function ( array $m ) use ( $new_alt, &$count ): string {
 			$tag     = $m[0];
 			$changed = false;
 
-			$tag = $this->upsert_attr( $tag, 'alt',   $new_alt,   $changed );
-			$tag = $this->upsert_attr( $tag, 'title', $new_title, $changed );
+			$tag = $this->upsert_attr( $tag, 'alt', $new_alt, $changed );
+			$tag = $this->strip_attr( $tag, 'title', $changed );
 
 			if ( $changed ) {
 				$count++;
@@ -154,5 +153,18 @@ class Alt_Syncer {
 
 		$changed = true;
 		return preg_replace( '#^<img\b#i', '<img ' . $repl, $tag, 1 );
+	}
+
+	/**
+	 * Remove a single HTML attribute (with its leading whitespace) from an
+	 * <img> tag. No-op when the attribute is absent.
+	 */
+	private function strip_attr( string $tag, string $attr, bool &$changed ): string {
+		$pattern = '#\s+' . preg_quote( $attr, '#' ) . '=(["\'])(.*?)\1#is';
+		if ( ! preg_match( $pattern, $tag ) ) {
+			return $tag;
+		}
+		$changed = true;
+		return preg_replace( $pattern, '', $tag, 1 );
 	}
 }
